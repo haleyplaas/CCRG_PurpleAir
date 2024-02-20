@@ -2,8 +2,8 @@ setwd("C:/Users/hplaas/OneDrive - University of North Carolina at Chapel Hill/Co
 rm(list = ls())
 library(httr);library(jsonlite);library(dplyr)
 
-read_api_key <- "AF9F770D-16A5-11EE-A77F-42010A800009" #Read API Key 
-write_api_key <- "1180D5E8-16AC-11EE-A77F-42010A800009" #Write API Key
+#read_api_key <- "" #Read API Key 
+#write_api_key <- "" #Write API Key
 
 date_string <- "2024-01-01" #input date here 
 # Convert the date string to a UNIX timestamp
