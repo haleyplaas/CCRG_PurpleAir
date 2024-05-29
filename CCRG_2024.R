@@ -1,4 +1,4 @@
-setwd("C:/Users/hplaas/OneDrive - University of North Carolina at Chapel Hill/Coding/R/CCRG")
+setwd("Q:\\My Drive\\Code Repositories\\R\\CCRG\\CCRG_PurpleAir")
 rm(list = ls())
 library(httr);library(jsonlite);library(dplyr)
 
@@ -189,8 +189,8 @@ print(unix_timestamp_numeric)
 #write.csv(sensor151562_list2, "C:/Users/hplaas/OneDrive - University of North Carolina at Chapel Hill/Coding/R/CCRG/purpleairdata/151562_2.csv", row.names=FALSE)
 
 
-# PurpleAir Data Cleaning -----------------------------------------------------------------------------------------------------------------
-folder_path <- "C:/Users/hplaas/OneDrive - University of North Carolina at Chapel Hill/Coding/R/CCRG/purpleairdata/cleaned_sensor_data"
+# PurpleAir Data Cleaning --------------------------------------------------------------------------
+folder_path <- "Q:\\My Drive\\Code Repositories\\R\\CCRG\\CCRG_PurpleAir\\purpleairdata\\cleaned_sensor_data"
 
 # Get the list of file names in the folder
 file_names <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
@@ -368,13 +368,24 @@ sensor.5822.1 <- sensor.5822.1 %>% mutate(pm1_corrected_by_RH = 0.524 * pm1_avg 
 # renaming to original file name 
 sensor.5822 <- sensor.5822.1
 
+# List all objects in the environment
+all_objects <- ls()
+
+# Filter objects that start with "Sensor." followed by four letters
+sensor_objects <- grep("^sensor\\.\\w{4}$", all_objects, value = TRUE)
+
+# Create a list combining all the matching dataframes
+pa.sensor.list <- lapply(sensor_objects, get)
+
+# If you want to name the list with the object names
+names(pa.sensor.list) <- sensor_objects
 
 # CyAN Cyanobacterial Index (digital number DN) data from SEADAS Pixel Extraction ---------------------------------------------- 
 library(tidyverse);library(dplyr)
 
-####################### read in all of the files
+# read in all of the SeaDAS files ---------------------------------------------------------------
 # Specify the folder path containing your text files
-folder_path <- "C:/Users/hplaas/OneDrive - University of North Carolina at Chapel Hill/Coding/R/CCRG/SeaDAS files/extracted_DNs"
+folder_path <- "Q:\\My Drive\\Code Repositories\\R\\CCRG\\CCRG_PurpleAir\\SeaDAS files\\extracted_DNs"
 
 # Initialize an empty list to store data frames
 result_list <- list()
@@ -400,7 +411,208 @@ for (file in filtered_files) {
   result_list[[new_filename]] <- selected_columns
 }
 
-################ Matrix of all digital number values by pixel for future imputations
+
+
+# Creating three separate lists for S, M, and L pixel coverages ---------------------------------------------------
+# Create empty lists to store dataframes
+S_list <- list()
+M_list <- list()
+L_list <- list()
+
+# Loop through the list of dataframes and sort them into respective lists
+for (df_name in names(result_list)) {
+  if (endsWith(df_name, "_S")) {
+    S_list[[df_name]] <- result_list[[df_name]]
+  } else if (endsWith(df_name, "_M")) {
+    M_list[[df_name]] <- result_list[[df_name]]
+  } else if (endsWith(df_name, "_L")) {
+    L_list[[df_name]] <- result_list[[df_name]]
+  }
+}
+
+# Adding dates into each dataframe for easier manipulation later on -------------------------------------------
+# Iterate over each data frame in the list
+for (df_name in names(S_list)) {
+  # Extract the date from the dataframe name
+  date <- gsub("[^0-9]", "", df_name)  # Extract only digits from the dataframe name
+  
+  # Convert the extracted date to a proper date format (YYYY-MM-DD)
+  date <- as.Date(as.character(date), format = "%Y%j")  # Convert to date format
+  
+  # Add a new column named 'date' to the dataframe with the extracted date
+  S_list[[df_name]]$date <- format(date, "%Y-%m-%d")  # Format date as YYYY-MM-DD
+}
+
+for (df_name in names(M_list)) {
+  # Extract the date from the dataframe name
+  date <- gsub("[^0-9]", "", df_name)  # Extract only digits from the dataframe name
+  
+  # Convert the extracted date to a proper date format (YYYY-MM-DD)
+  date <- as.Date(as.character(date), format = "%Y%j")  # Convert to date format
+  
+  # Add a new column named 'date' to the dataframe with the extracted date
+  M_list[[df_name]]$date <- format(date, "%Y-%m-%d")  # Format date as YYYY-MM-DD
+}
+
+for (df_name in names(L_list)) {
+  # Extract the date from the dataframe name
+  date <- gsub("[^0-9]", "", df_name)  # Extract only digits from the dataframe name
+  
+  # Convert the extracted date to a proper date format (YYYY-MM-DD)
+  date <- as.Date(as.character(date), format = "%Y%j")  # Convert to date format
+  
+  # Add a new column named 'date' to the dataframe with the extracted date
+  L_list[[df_name]]$date <- format(date, "%Y-%m-%d")  # Format date as YYYY-MM-DD
+}
+
+# Calculate cyanobacterial indices, chlorophyll a and cyano cell count averages ----------
+# this is working fine, but the issue is that a lot of sensors are dropping due to missing values which will need to be addressed later on
+S_intensity <- list()  
+for (df_name in names(S_list)) {
+  # Calculate summary statistics
+  summary_df <- S_list[[df_name]] %>%
+    mutate(pixel_type = case_when(
+      band_1 >= 0 & band_1 <= 253 ~ "valid",
+      band_1 == 254 ~ "land",
+      band_1 == 255 ~ "invalid")) %>%
+    mutate(CI_cyano = 10^(3/250*band_1-4.2),
+           cyano_cell_count = CI_cyano*100000000,
+           chlorophyll = 6620*CI_cyano-3.07) %>%
+    filter(pixel_type == "valid") %>%
+    group_by(Name, date) %>%
+    summarize(
+      avg_cyano_cell_count = mean(cyano_cell_count, na.rm = TRUE),
+      median_cyano_cell_count = median(cyano_cell_count, na.rm = TRUE),
+      max_cyano_cell_count = max(cyano_cell_count, na.rm = TRUE),
+      avg_chlorophyll = mean(chlorophyll, na.rm = TRUE),
+      median_chlorophyll = median(chlorophyll, na.rm = TRUE),
+      max_chlorophyll = max(chlorophyll, na.rm = TRUE)) %>%
+    mutate_at(vars(c(avg_cyano_cell_count, median_cyano_cell_count, max_cyano_cell_count)), ~ifelse(. <= 6310, 0, .)) %>%
+    mutate_at(vars(c(avg_chlorophyll, median_chlorophyll, max_chlorophyll)), ~ifelse(. <= 0, 0, .)) %>%
+    ungroup()  %>% 
+    as.data.frame()
+  # Store the summary data frame in the list with the same name as the data frame
+  S_intensity[[df_name]] <- summary_df }
+
+M_intensity <- list()  
+for (df_name in names(M_list)) {
+  # Calculate summary statistics
+  summary_df <- M_list[[df_name]] %>%
+    mutate(pixel_type = case_when(
+      band_1 >= 0 & band_1 <= 253 ~ "valid",
+      band_1 == 254 ~ "land",
+      band_1 == 255 ~ "invalid")) %>%
+    mutate(CI_cyano = 10^(3/250*band_1-4.2),
+           cyano_cell_count = CI_cyano*100000000,
+           chlorophyll = 6620*CI_cyano-3.07) %>%
+    filter(pixel_type == "valid") %>%
+    group_by(Name, date) %>%
+    summarize(
+      avg_cyano_cell_count = mean(cyano_cell_count, na.rm = TRUE),
+      median_cyano_cell_count = median(cyano_cell_count, na.rm = TRUE),
+      max_cyano_cell_count = max(cyano_cell_count, na.rm = TRUE),
+      avg_chlorophyll = mean(chlorophyll, na.rm = TRUE),
+      median_chlorophyll = median(chlorophyll, na.rm = TRUE),
+      max_chlorophyll = max(chlorophyll, na.rm = TRUE)) %>%
+    mutate_at(vars(c(avg_cyano_cell_count, median_cyano_cell_count, max_cyano_cell_count)), ~ifelse(. <= 6310, 0, .)) %>%
+    mutate_at(vars(c(avg_chlorophyll, median_chlorophyll, max_chlorophyll)), ~ifelse(. <= 0, 0, .)) %>%
+    ungroup()  %>% 
+    as.data.frame()
+  # Store the summary data frame in the list with the same name as the data frame
+  M_intensity[[df_name]] <- summary_df }
+
+L_intensity <- list()  
+for (df_name in names(L_list)) {
+  # Calculate summary statistics
+  summary_df <- L_list[[df_name]] %>%
+    mutate(pixel_type = case_when(
+      band_1 >= 0 & band_1 <= 253 ~ "valid",
+      band_1 == 254 ~ "land",
+      band_1 == 255 ~ "invalid")) %>%
+    mutate(CI_cyano = 10^(3/250*band_1-4.2),
+           cyano_cell_count = CI_cyano*100000000,
+           chlorophyll = 6620*CI_cyano-3.07) %>%
+    filter(pixel_type == "valid") %>%
+    group_by(Name, date) %>%
+    summarize(
+      avg_cyano_cell_count = mean(cyano_cell_count, na.rm = TRUE),
+      median_cyano_cell_count = median(cyano_cell_count, na.rm = TRUE),
+      max_cyano_cell_count = max(cyano_cell_count, na.rm = TRUE),
+      avg_chlorophyll = mean(chlorophyll, na.rm = TRUE),
+      median_chlorophyll = median(chlorophyll, na.rm = TRUE),
+      max_chlorophyll = max(chlorophyll, na.rm = TRUE)) %>%
+    mutate_at(vars(c(avg_cyano_cell_count, median_cyano_cell_count, max_cyano_cell_count)), ~ifelse(. <= 6310, 0, .)) %>%
+    mutate_at(vars(c(avg_chlorophyll, median_chlorophyll, max_chlorophyll)), ~ifelse(. <= 0, 0, .)) %>%
+    ungroup()  %>% 
+    as.data.frame()
+  # Store the summary data frame in the list with the same name as the data frame
+  L_intensity[[df_name]] <- summary_df }
+
+
+# Generate data availability summaries for each sensor at each resolution ----------------------------------------
+
+summary_data_frames_S <- list()
+# Iterate over each data frame in the result list
+for (df_name in names(S_list)) {
+  # Group by "Name" and summarize counts for each category of "band_1"
+  summary_df <- S_list[[df_name]] %>%
+    group_by(Name, date) %>%
+    summarize(`0-253` = sum(band_1 >= 0 & band_1 <= 253),
+              `254` = sum(band_1 == 254),
+              `255` = sum(band_1 == 255)) %>%
+    # Add a new column "water" that sums counts for categories 0-253 and 255
+    mutate(water = `0-253` + `255`,
+           land = `254`,
+           water_surface_area = round((`0-253`+`255`)/(`0-253`+`255`+`254`),2),
+           percent_valid_pixels = round(`0-253` / `water`, 2)) %>%
+    arrange(Name) %>%
+    as.data.frame()
+  
+  # Store the summary data frame in the list with the same name as the data frame
+  summary_data_frames_S[[df_name]] <- summary_df
+}
+
+summary_data_frames_M <- list()
+# Iterate over each data frame in the result list
+for (df_name in names(M_list)) {
+  # Group by "Name" and summarize counts for each category of "band_1"
+  summary_df <- M_list[[df_name]] %>%
+    group_by(Name, date) %>%
+    summarize(`0-253` = sum(band_1 >= 0 & band_1 <= 253),
+              `254` = sum(band_1 == 254),
+              `255` = sum(band_1 == 255)) %>%
+    # Add a new column "water" that sums counts for categories 0-253 and 255
+    mutate(water = `0-253` + `255`,
+           land = `254`,
+           water_surface_area = round((`0-253`+`255`)/(`0-253`+`255`+`254`),2),
+           percent_valid_pixels = round(`0-253` / `water`, 2)) %>%
+    arrange(Name) %>%
+    as.data.frame()
+  
+  # Store the summary data frame in the list with the same name as the data frame
+  summary_data_frames_M[[df_name]] <- summary_df
+}
+
+summary_data_frames_L <- list()
+# Iterate over each data frame in the result list
+for (df_name in names(L_list)) {
+  # Group by "Name" and summarize counts for each category of "band_1"
+  summary_df <- L_list[[df_name]] %>%
+    group_by(Name, date) %>%
+    summarize(`0-253` = sum(band_1 >= 0 & band_1 <= 253),
+              `254` = sum(band_1 == 254),
+              `255` = sum(band_1 == 255)) %>%
+    # Add a new column "water" that sums counts for categories 0-253 and 255
+    mutate(water = `0-253` + `255`,
+           land = `254`,
+           water_surface_area = round((`0-253`+`255`)/(`0-253`+`255`+`254`),2),
+           percent_valid_pixels = round(`0-253` / `water`, 2)) %>%
+    arrange(Name) %>%
+    as.data.frame()
+  
+  # Store the summary data frame in the list with the same name as the data frame
+  summary_data_frames_L[[df_name]] <- summary_df
+}
 
 
 
@@ -408,7 +620,39 @@ for (file in filtered_files) {
 
 
 
-################ Generate summaries for each sensor at each resolution 
+
+# Iterate over each data frame in the result list
+for (df_name in names(S_list)) {
+  # Add a new columns "CI_cyano", "cyano_cell_count", and "chlorophyll" converted from digital number values
+  summary_df <- S_list[[df_name]] %>%
+    mutate(CI_cyano = 10^(3/250*band_1-4.2),
+           cyano_cell_count = CI_cyano*100000000,
+           chlorophyll = 6620*CI_cyano-3.07) %>%
+    as.data.frame()
+  
+  # Store the summary data frame in the list with the same name as the data frame
+  S_intensity_avg[[df_name]] <- summary_df
+}
+
+
+
+# switch grouping dataframes within list by date to sensor 
+
+# Step 1: Extract unique sensor names from the first dataframe in S_intensity
+unique_sensor_names <- unique(L_intensity[[1]]$Name)
+
+
+
+# Matrix of all digital number values by pixel for future imputations --------------------------
+
+
+
+
+
+
+
+
+# Generate summaries for each sensor at each resolution ----------------------------------------
 # Initialize an empty list to store summary data frames
 summary_data_frames <- list()
 
@@ -552,11 +796,11 @@ summary_count_frames <- list()
 
 # Iterate over each data frame in the result list
 for (df_name in names(result_list)) {
-  # Add a new columns "CI_cyano" and "cyano_cell_count" converted from digital number values
+  # Add a new columns "CI_cyano", "cyano_cell_count", and "chlorophyll" converted from digital number values
   summary_df <- result_list[[df_name]] %>%
     mutate(CI_cyano = 10^(3/250*band_1-4.2),
-           cyano_cell_count = CI_cyano*100000000) %>%
-    select(-CI_cyano) %>%
+           cyano_cell_count = CI_cyano*100000000,
+           chlorophyll = 6620*CI_cyano-3.07) %>%
     as.data.frame()
   
   # Store the summary data frame in the list with the same name as the data frame
@@ -566,11 +810,14 @@ for (df_name in names(result_list)) {
 # Initialize an empty list to store summary data frames
 summary_statistics_data_frames <- list()
 
+# THIS NEEDS TO BE UPDATED TO INCLUDE AVERAGES FOR ALL THREE CATEGORIES 
 # Iterate over each data frame in the result list
 for (df_name in names(summary_count_frames)) {
   # Filter values between 0 and 253 for each 'Name' group and remove NA values
   filtered_df <- summary_count_frames[[df_name]] %>%
-    filter(cyano_cell_count >= 6309.573 & cyano_cell_count <= 7046930)
+    filter(cyano_cell_count >= 6309.573 & cyano_cell_count <= 7046930) %>% 
+    filter(CI_cyano >= -0.0001 & CI_cyano <= 0.0685) %>%
+    filter(chlorophyll >= 0 & chlorophyll <= 450.4)
   
   # Check if the filtered dataframe is not empty
   if (!is_empty(filtered_df)) {
@@ -851,9 +1098,7 @@ ggplot(pm2.5_mass_conc_long, aes(x = season, y = PM2.5_Mass_Concentration, fill 
   theme_minimal()
 
 
-# TEST COMMIT
 
-# Is this showing up in Github online 
 
 
 
