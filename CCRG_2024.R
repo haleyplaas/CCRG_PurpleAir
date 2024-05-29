@@ -2,6 +2,8 @@ setwd("Q:\\My Drive\\Code Repositories\\R\\CCRG\\CCRG_PurpleAir")
 rm(list = ls())
 library(httr);library(jsonlite);library(dplyr)
 
+# API Calls to Retrieve PurpleAir Sensor PM data 6/1/2022-Present ----------------------------------------------------------------------
+# purple air API
 #read_api_key <- "" #Read API Key 
 #write_api_key <- "" #Write API Key
 
@@ -12,8 +14,6 @@ unix_timestamp <- as.POSIXct(date_string, format = "%Y-%m-%d", tz = "UTC")
 unix_timestamp_numeric <- as.numeric(unix_timestamp)
 # Print the UNIX timestamp
 print(unix_timestamp_numeric)
-
-# API Calls to Retrieve PurpleAir Sensor PM data 6/1/2022-Present --------------------------------------------------------------------------------------
 ## AFTER SUCCESSFUL RETRIEVAL, DO NOT RUN THE SCRIPT AGAIN TO DUE TO LIMITATIONS ON CALLS BY PURPLEAIR 
 #group_ID <- '2171' #Group name CCRG, added sensors to group by sensor INDEX (not ID): 
 #1. OBX 151806, 2. N.ELIZ 151344, 3. MID.ELIZ 179875, 4. PH.ELIZ 151318, 5. NIX 151362, 6. HERT 151378, 7. EDE.HM 151348, 8. EDE.Q 145838, 9.COLE 151680, 10. ARR.C 145822, 11. ARR.M 151334, 12. WIND 151358, 13. MURF 151562
@@ -190,7 +190,7 @@ print(unix_timestamp_numeric)
 
 
 # PurpleAir Data Cleaning --------------------------------------------------------------------------
-folder_path <- "Q:\\My Drive\\Code Repositories\\R\\CCRG\\CCRG_PurpleAir\\purpleairdata\\cleaned_sensor_data"
+folder_path <- "Q:\\My Drive\\Code Repositories\\R\\CCRG\\purpleairdata\\cleaned_sensor_data"
 
 # Get the list of file names in the folder
 file_names <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
@@ -383,9 +383,9 @@ names(pa.sensor.list) <- sensor_objects
 # CyAN Cyanobacterial Index (digital number DN) data from SEADAS Pixel Extraction ---------------------------------------------- 
 library(tidyverse);library(dplyr)
 
-# read in all of the SeaDAS files ---------------------------------------------------------------
+# read in all of the SeaDAS files 
 # Specify the folder path containing your text files
-folder_path <- "Q:\\My Drive\\Code Repositories\\R\\CCRG\\CCRG_PurpleAir\\SeaDAS files\\extracted_DNs"
+folder_path <- "Q:\\My Drive\\Code Repositories\\R\\CCRG\\SeaDAS files\\extracted_DNs"
 
 # Initialize an empty list to store data frames
 result_list <- list()
@@ -394,7 +394,7 @@ result_list <- list()
 files <- list.files(folder_path, pattern = "\\.txt$", full.names = TRUE)
 
 # Filter files that contain the word "Derived" in the name
-filtered_files <- files[grep("Derived", files)]
+filtered_files <- files[grep("GeoTIFF", files)]
 
 for (file in filtered_files) {
   
@@ -421,11 +421,11 @@ L_list <- list()
 
 # Loop through the list of dataframes and sort them into respective lists
 for (df_name in names(result_list)) {
-  if (endsWith(df_name, "_S")) {
+  if (grepl("_S|_S_*", df_name, ignore.case = FALSE)) {
     S_list[[df_name]] <- result_list[[df_name]]
-  } else if (endsWith(df_name, "_M")) {
+  } else if (grepl("_M|_M_*", df_name, ignore.case = FALSE)) {
     M_list[[df_name]] <- result_list[[df_name]]
-  } else if (endsWith(df_name, "_L")) {
+  } else if (grepl("_L|_L_*", df_name, ignore.case = FALSE)) {
     L_list[[df_name]] <- result_list[[df_name]]
   }
 }
@@ -494,6 +494,20 @@ for (df_name in names(S_list)) {
   # Store the summary data frame in the list with the same name as the data frame
   S_intensity[[df_name]] <- summary_df }
 
+# Define the complete set of Name values
+all_names <- c(1562, 5822, 1334, 1680, 1358, 5838, 1348, 1378, 1362, 1318, 9875, 1344, 1806)
+
+# Fill in the missing values for each sensor with NA
+for (i in seq_along(S_intensity)) {
+  S_intensity[[i]] <- S_intensity[[i]] %>%
+    complete(Name = all_names) %>%
+    fill(date) %>%
+    fill(date, .direction = "up")
+}
+
+all_S_cyano_values_wide <- bind_rows(S_intensity)
+all_S_cyano_values_wide$Name <- as.character(all_S_cyano_values_wide$Name)
+
 M_intensity <- list()  
 for (df_name in names(M_list)) {
   # Calculate summary statistics
@@ -520,6 +534,17 @@ for (df_name in names(M_list)) {
     as.data.frame()
   # Store the summary data frame in the list with the same name as the data frame
   M_intensity[[df_name]] <- summary_df }
+
+# Fill in the missing values for each sensor with NA
+for (i in seq_along(M_intensity)) {
+  M_intensity[[i]] <- M_intensity[[i]] %>%
+    complete(Name = all_names) %>%
+    fill(date) %>%
+    fill(date, .direction = "up")
+}
+
+all_M_cyano_values_wide <- bind_rows(M_intensity)
+all_M_cyano_values_wide$Name <- as.character(all_M_cyano_values_wide$Name)
 
 L_intensity <- list()  
 for (df_name in names(L_list)) {
@@ -548,9 +573,74 @@ for (df_name in names(L_list)) {
   # Store the summary data frame in the list with the same name as the data frame
   L_intensity[[df_name]] <- summary_df }
 
+# Fill in the missing values for each sensor with NA
+for (i in seq_along(L_intensity)) {
+  L_intensity[[i]] <- L_intensity[[i]] %>%
+    complete(Name = all_names) %>%
+    fill(date) %>%
+    fill(date, .direction = "up")
+}
+
+all_L_cyano_values_wide <- bind_rows(L_intensity)
+all_L_cyano_values_wide$Name <- as.character(all_L_cyano_values_wide$Name)
+
+# pivot_longer for visualizations and combine list into single df -----------------------------
+
+# Create an empty list to store the result
+S_intensity_longer <- list()
+
+# Loop over each dataframe in the S_intensity list
+for (i in seq_along(S_intensity)) {
+  # Pivot longer to make every column after "date" into a new column
+  pivoted_df <- S_intensity[[i]] %>%
+    pivot_longer(cols = c(-Name,-date),
+                 names_to = "variable",
+                 values_to = "value")
+  
+  # Store the pivoted dataframe in the S_intensity_longer list
+  S_intensity_longer[[i]] <- pivoted_df
+}
+
+# completed final large dataframe all bound together
+all_S_cyano_values <- bind_rows(S_intensity_longer)
+
+# Create an empty list to store the result
+M_intensity_longer <- list()
+
+# Loop over each dataframe in the M_intensity list
+for (i in seq_along(M_intensity)) {
+  # Pivot longer to make every column after "date" into a new column
+  pivoted_df <- M_intensity[[i]] %>%
+    pivot_longer(cols = c(-Name,-date),
+                 names_to = "variable",
+                 values_to = "value")
+  
+  # Store the pivoted dataframe in the M_intensity_longer list
+  M_intensity_longer[[i]] <- pivoted_df
+}
+
+# completed final large dataframe all bound together
+all_M_cyano_values <- bind_rows(M_intensity_longer)
+
+# Create an empty list to store the result
+L_intensity_longer <- list()
+
+# Loop over each dataframe in the L_intensity list
+for (i in seq_along(L_intensity)) {
+  # Pivot longer to make every column after "date" into a new column
+  pivoted_df <- L_intensity[[i]] %>%
+    pivot_longer(cols = c(-Name,-date),
+                 names_to = "variable",
+                 values_to = "value")
+  
+  # Store the pivoted dataframe in the L_intensity_longer list
+  L_intensity_longer[[i]] <- pivoted_df
+}
+
+# completed final large dataframe all bound together
+all_L_cyano_values <- bind_rows(L_intensity_longer)
 
 # Generate data availability summaries for each sensor at each resolution ----------------------------------------
-
 summary_data_frames_S <- list()
 # Iterate over each data frame in the result list
 for (df_name in names(S_list)) {
@@ -615,42 +705,502 @@ for (df_name in names(L_list)) {
 }
 
 
-
-
-
-
-
-
-# Iterate over each data frame in the result list
-for (df_name in names(S_list)) {
-  # Add a new columns "CI_cyano", "cyano_cell_count", and "chlorophyll" converted from digital number values
-  summary_df <- S_list[[df_name]] %>%
-    mutate(CI_cyano = 10^(3/250*band_1-4.2),
-           cyano_cell_count = CI_cyano*100000000,
-           chlorophyll = 6620*CI_cyano-3.07) %>%
-    as.data.frame()
-  
-  # Store the summary data frame in the list with the same name as the data frame
-  S_intensity_avg[[df_name]] <- summary_df
-}
-
-
-
-# switch grouping dataframes within list by date to sensor 
-
 # Step 1: Extract unique sensor names from the first dataframe in S_intensity
 unique_sensor_names <- unique(L_intensity[[1]]$Name)
 
 
 
-# Matrix of all digital number values by pixel for future imputations --------------------------
+
+
+# Combining Air Quality data with Water Quality data -----------------------------------------------
+# List of dataframes to combine
+sensor_names <- c("sensor.1318", "sensor.1344", "sensor.1348", "sensor.1358", 
+                  "sensor.1362", "sensor.1378", "sensor.1680", "sensor.1806", 
+                  "sensor.5822", "sensor.5838", "sensor.9875")
+
+# Initialize an empty list to store combined dataframes
+purpleair_data <- list()
+
+# Loop through each dataframe, add a new column "Name" with the sensor name
+for (sensor_name in sensor_names) {
+  df <- get(sensor_name) # Get dataframe by name
+  df <- df %>%
+    mutate(Name = gsub("sensor\\.", "", sensor_name)) # Extract sensor number and add as new column
+  purpleair_data[[sensor_name]] <- df # Add modified dataframe to combined list
+}
+
+compiled_purpleair_data <- bind_rows(purpleair_data) %>% 
+          select(Name, time_stamp, pm1_corrected_by_RH, pm2.5_corrected_by_RH, pm10_corrected_by_RH) %>% 
+          rename(date = time_stamp, pm1 = pm1_corrected_by_RH, pm2.5 = pm2.5_corrected_by_RH, 
+                 pm10 = pm10_corrected_by_RH)  %>%
+          mutate(across(-c(date, Name), ~ifelse(. < 0, 0, .)))
+
+# longer for visualizations
+compiled_purpleair_data_longer <- compiled_purpleair_data %>% 
+                                  pivot_longer(cols = c(-Name,-date), names_to = "variable", values_to = "value")
+compiled_purpleair_data_longer$date <- as.Date(compiled_purpleair_data_longer$date)
+
+combined_water_air_S_long <- rbind(compiled_purpleair_data_longer, all_S_cyano_values) %>% 
+  mutate(water.proximity = case_when(
+    Name == "1318" ~ "<1km",
+    Name == "1334" ~ "<1km",
+    Name == "1344" ~ ">1km",
+    Name == "1348" ~ "<.5km",
+    Name == "1358" ~ "control",
+    Name == "1362" ~ "<.5km",
+    Name == "1378" ~ "<.5km",
+    Name == "1562" ~ "control",
+    Name == "1680" ~ "<.5km",
+    Name == "1806" ~ "<1km",
+    Name == "5822" ~ "<.5km",
+    Name == "5838" ~ "<1km",
+    Name == "9875" ~ "<.5km"))
+combined_water_air_M_long <- rbind(compiled_purpleair_data_longer, all_M_cyano_values) %>% 
+  mutate(water.proximity = case_when(
+    Name == "1318" ~ "<1km",
+    Name == "1334" ~ "<1km",
+    Name == "1344" ~ ">1km",
+    Name == "1348" ~ "<.5km",
+    Name == "1358" ~ "control",
+    Name == "1362" ~ "<.5km",
+    Name == "1378" ~ "<.5km",
+    Name == "1562" ~ "control",
+    Name == "1680" ~ "<.5km",
+    Name == "1806" ~ "<1km",
+    Name == "5822" ~ "<.5km",
+    Name == "5838" ~ "<1km",
+    Name == "9875" ~ "<.5km"))
+combined_water_air_L_long <- rbind(compiled_purpleair_data_longer, all_L_cyano_values) %>% 
+  mutate(water.proximity = case_when(
+    Name == "1318" ~ "<1km",
+    Name == "1334" ~ "<1km",
+    Name == "1344" ~ ">1km",
+    Name == "1348" ~ "<.5km",
+    Name == "1358" ~ "control",
+    Name == "1362" ~ "<.5km",
+    Name == "1378" ~ "<.5km",
+    Name == "1562" ~ "control",
+    Name == "1680" ~ "<.5km",
+    Name == "1806" ~ "<1km",
+    Name == "5822" ~ "<.5km",
+    Name == "5838" ~ "<1km",
+    Name == "9875" ~ "<.5km"))
+
+# wider for other comparisons / viz
+combined_water_air_S_wide <- left_join(compiled_purpleair_data, all_S_cyano_values_wide, by = c("Name", "date")) %>% 
+  mutate(water.proximity = case_when(
+    Name == "1318" ~ "<1km",
+    Name == "1334" ~ "<1km",
+    Name == "1344" ~ ">1km",
+    Name == "1348" ~ "<.5km",
+    Name == "1358" ~ "control",
+    Name == "1362" ~ "<.5km",
+    Name == "1378" ~ "<.5km",
+    Name == "1562" ~ "control",
+    Name == "1680" ~ "<.5km",
+    Name == "1806" ~ "<1km",
+    Name == "5822" ~ "<.5km",
+    Name == "5838" ~ "<1km",
+    Name == "9875" ~ "<.5km"))
+combined_water_air_M_wide <- left_join(compiled_purpleair_data, all_M_cyano_values_wide, by = c("Name", "date")) %>% 
+  mutate(water.proximity = case_when(
+    Name == "1318" ~ "<1km",
+    Name == "1334" ~ "<1km",
+    Name == "1344" ~ ">1km",
+    Name == "1348" ~ "<.5km",
+    Name == "1358" ~ "control",
+    Name == "1362" ~ "<.5km",
+    Name == "1378" ~ "<.5km",
+    Name == "1562" ~ "control",
+    Name == "1680" ~ "<.5km",
+    Name == "1806" ~ "<1km",
+    Name == "5822" ~ "<.5km",
+    Name == "5838" ~ "<1km",
+    Name == "9875" ~ "<.5km"))
+combined_water_air_L_wide <- left_join(compiled_purpleair_data, all_L_cyano_values_wide, by = c("Name", "date"))%>% 
+  mutate(water.proximity = case_when(
+    Name == "1318" ~ "<1km",
+    Name == "1334" ~ "<1km",
+    Name == "1344" ~ ">1km",
+    Name == "1348" ~ "<.5km",
+    Name == "1358" ~ "control",
+    Name == "1362" ~ "<.5km",
+    Name == "1378" ~ "<.5km",
+    Name == "1562" ~ "control",
+    Name == "1680" ~ "<.5km",
+    Name == "1806" ~ "<1km",
+    Name == "5822" ~ "<.5km",
+    Name == "5838" ~ "<1km",
+    Name == "9875" ~ "<.5km"))
+
+# Playing around with plots ------------------------------------------------------------------
+# color palettes and other theme specifications
+location.color.palette <- c("1318" = "deepskyblue",
+                            "1344" = "cadetblue2",
+                            "1348" = "blue",
+                            "1358" = "black",
+                            "1362" = "blue",
+                            "1378" = "blue",
+                            "1680" = "blue",
+                            "1806" = "blue",
+                            "5822" = "blue",
+                            "5838" = "deepskyblue",
+                            "9875" = "blue")
+
+proximity.color.palette <- c("<1km" = "deepskyblue",
+                             ">1km"= "cadetblue2",
+                             "<.5km" = "blue",
+                             "control" = "black")
+
+# selecting data of interest
+pm2.5df <- combined_water_air_L_long %>% 
+           filter(variable == "pm2.5") %>% #selecting variable of interest for plot
+           filter(#date > "2023-01-01" & 
+                    date <= "2023-06-01" | 
+                    date >= "2023-06-14") %>% 
+           na.omit()
+
+pm2.5df.2023 <- combined_water_air_L_long %>% 
+  filter(variable == "pm2.5") %>% #selecting variable of interest for plot
+  filter(date > "2023-01-01" & 
+    date <= "2023-06-01" | 
+      date >= "2023-06-14") %>% 
+  na.omit()
+
+pm2.5df.2022 <- combined_water_air_L_long %>% 
+  filter(variable == "pm2.5") %>% #selecting variable of interest for plot
+  filter(date < "2023-01-01" & 
+           date <= "2023-06-01" | 
+           date >= "2023-06-14") %>% 
+  na.omit()
+
+# Compiled years ----------------------------------------------------------------------------
+# stats test to go with boxplot data
+library(multcompView)
+anova.PM2.5.sensor <- aov(value ~ Name, data = pm2.5df)
+summary(anova.PM2.5.sensor)
+
+tukey.sensor <- TukeyHSD(anova.PM2.5.sensor)
+print(tukey.sensor)
+
+cld.sensor <- multcompLetters4(anova.PM2.5.sensor, tukey.sensor)
+print(cld.sensor)
+
+tk.sensor <- group_by(pm2.5df, Name) %>% 
+      summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+      arrange(desc(mean))
+cld.sensor <- as.data.frame.list(cld.sensor$Name)
+
+# plots 
+ggplot(pm2.5df, aes(x = Name, y = value, fill = Name)) +
+  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
+  geom_boxplot(alpha = 0.5) +
+  labs(x = "Sensor ID") +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  ggtitle("PM2.5 Mass May-August 2022 and 2023") +
+  scale_fill_manual(values = location.color.palette) +
+  scale_color_manual(values = location.color.palette) +
+  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
+        axis.text.y = element_text(size=15, face="bold", color = "black"),
+        axis.title.x = element_text(size=15, face="bold", color = "black"),  
+        axis.title.y = element_text(size=15, face="bold", color = "black"),
+        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
+        panel.grid.major.x = element_blank()) +
+  ylim(0,20) +
+  geom_text(data = tk.sensor, aes(x = Name, y = quant, label = cld.sensor$Letters), size = 3, vjust=-1, hjust = -0.2)
+
+# grouped by water proximity
+anova.PM2.5.prox <- aov(value ~ water.proximity, data = pm2.5df)
+summary(anova.PM2.5.prox)
+
+tukey.prox <- TukeyHSD(anova.PM2.5.prox)
+print(tukey.prox)
+
+cld.prox <- multcompLetters4(anova.PM2.5.prox, tukey.prox)
+print(cld.prox)
+
+tk.prox <- group_by(pm2.5df, water.proximity) %>% 
+  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+  arrange(desc(mean))
+cld.prox <- as.data.frame.list(cld.prox$water.proximity)
+
+# plots 
+ggplot(pm2.5df, aes(x = water.proximity, y = value, fill = water.proximity)) +
+  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
+  geom_boxplot(alpha = 0.5) +
+  labs(x = "Proximity to Waterfront") +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  ggtitle("Annual PM2.5 Mass May-August 2022 and 2023") +
+  scale_fill_manual(values = proximity.color.palette) +
+  scale_color_manual(values = proximity.color.palette) +
+  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
+        axis.text.y = element_text(size=15, face="bold", color = "black"),
+        axis.title.x = element_text(size=15, face="bold", color = "black"),  
+        axis.title.y = element_text(size=15, face="bold", color = "black"),
+        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
+        panel.grid.major.x = element_blank()) +
+  ylim(0,20) +
+  geom_text(data = tk.prox, aes(x = water.proximity, y = quant, label = cld.prox$Letters), size = 5, vjust=-1, hjust = -0.2)
+
+# 2022 DATA ONLY --------------------------------------------------------------------------------
+# stats test to go with boxplot data
+library(multcompView)
+anova.PM2.5.sensor.22 <- aov(value ~ Name, data = pm2.5df.2022)
+summary(anova.PM2.5.sensor.22)
+
+tukey.sensor.22 <- TukeyHSD(anova.PM2.5.sensor.22)
+print(tukey.sensor.22)
+
+cld.sensor.22 <- multcompLetters4(anova.PM2.5.sensor.22, tukey.sensor.22)
+print(cld.sensor.22)
+
+tk.sensor.22 <- group_by(pm2.5df.2022, Name) %>% 
+      summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+      arrange(desc(mean))
+cld.sensor.22 <- as.data.frame.list(cld.sensor.22$Name)
+
+# plots 
+ggplot(pm2.5df.2022, aes(x = Name, y = value, fill = Name)) +
+  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
+  geom_boxplot(alpha = 0.5) +
+  labs(x = "Sensor ID") +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  ggtitle("PM2.5 Mass May-August 2023") +
+  scale_fill_manual(values = location.color.palette) +
+  scale_color_manual(values = location.color.palette) +
+  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
+        axis.text.y = element_text(size=15, face="bold", color = "black"),
+        axis.title.x = element_text(size=15, face="bold", color = "black"),  
+        axis.title.y = element_text(size=15, face="bold", color = "black"),
+        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
+        panel.grid.major.x = element_blank()) +
+  ylim(0,20) +
+  geom_text(data = tk.sensor.22, aes(x = Name, y = quant, label = cld.sensor.22$Letters), size = 3, vjust=-1, hjust = -0.2)
+
+# grouped by water proximity
+anova.PM2.5.prox.22 <- aov(value ~ water.proximity, data = pm2.5df.2022)
+summary(anova.PM2.5.prox.22)
+
+tukey.prox.22 <- TukeyHSD(anova.PM2.5.prox.22)
+print(tukey.prox.22)
+
+cld.prox.22 <- multcompLetters4(anova.PM2.5.prox.22, tukey.prox.22)
+print(cld.prox.22)
+
+tk.prox.22 <- group_by(pm2.5df.2022, water.proximity) %>% 
+  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+  arrange(desc(mean))
+cld.prox.22 <- as.data.frame.list(cld.prox.22$water.proximity)
+
+# plots 
+ggplot(pm2.5df.2022, aes(x = water.proximity, y = value, fill = water.proximity)) +
+  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
+  geom_boxplot(alpha = 0.5) +
+  labs(x = "Proximity to Waterfront") +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  ggtitle("Annual PM2.5 Mass May-August 2022") +
+  scale_fill_manual(values = proximity.color.palette) +
+  scale_color_manual(values = proximity.color.palette) +
+  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
+        axis.text.y = element_text(size=15, face="bold", color = "black"),
+        axis.title.x = element_text(size=15, face="bold", color = "black"),  
+        axis.title.y = element_text(size=15, face="bold", color = "black"),
+        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
+        panel.grid.major.x = element_blank()) +
+  ylim(0,20) +
+  geom_text(data = tk.prox.22, aes(x = water.proximity, y = quant, label = cld.prox.22$Letters), size = 5, vjust=-1, hjust = -0.2)
+
+# 2023 DATA ONLY ------------------------------------------------------------------------
+# stats test to go with boxplot data
+anova.PM2.5.sensor.23 <- aov(value ~ Name, data = pm2.5df.2023)
+summary(anova.PM2.5.sensor.23)
+
+tukey.sensor.23 <- TukeyHSD(anova.PM2.5.sensor.23)
+print(tukey.sensor.23)
+
+cld.sensor.23 <- multcompLetters4(anova.PM2.5.sensor.23, tukey.sensor.23)
+print(cld.sensor.23)
+
+tk.sensor.23 <- group_by(pm2.5df.2023, Name) %>% 
+  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+  arrange(desc(mean))
+cld.sensor.23 <- as.data.frame.list(cld.sensor.23$Name)
+
+# plots 
+ggplot(pm2.5df.2023, aes(x = Name, y = value, fill = Name)) +
+  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
+  geom_boxplot(alpha = 0.5) +
+  labs(x = "Sensor ID") +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  ggtitle("PM2.5 Mass May-August 2023") +
+  scale_fill_manual(values = location.color.palette) +
+  scale_color_manual(values = location.color.palette) +
+  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
+        axis.text.y = element_text(size=15, face="bold", color = "black"),
+        axis.title.x = element_text(size=15, face="bold", color = "black"),  
+        axis.title.y = element_text(size=15, face="bold", color = "black"),
+        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
+        panel.grid.major.x = element_blank()) +
+  ylim(0,20) +
+  geom_text(data = tk.sensor.23, aes(x = Name, y = quant, label = cld.sensor.23$Letters), size = 3, vjust=-1, hjust = -0.2)
+
+# grouped by water proximity
+anova.PM2.5.prox.23 <- aov(value ~ water.proximity, data = pm2.5df.2023)
+summary(anova.PM2.5.prox.23)
+
+tukey.prox.23 <- TukeyHSD(anova.PM2.5.prox.23)
+print(tukey.prox.23)
+
+cld.prox.23 <- multcompLetters4(anova.PM2.5.prox.23, tukey.prox.23)
+print(cld.prox.23)
+
+tk.prox.23 <- group_by(pm2.5df.2023, water.proximity) %>% 
+  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+  arrange(desc(mean))
+cld.prox.23 <- as.data.frame.list(cld.prox.23$water.proximity)
+
+# plots 
+ggplot(pm2.5df.2023, aes(x = water.proximity, y = value, fill = water.proximity)) +
+  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
+  geom_boxplot(alpha = 0.5) +
+  labs(x = "Proximity to Waterfront") +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  ggtitle("Annual PM2.5 Mass May-August 2023") +
+  scale_fill_manual(values = proximity.color.palette) +
+  scale_color_manual(values = proximity.color.palette) +
+  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
+        axis.text.y = element_text(size=15, face="bold", color = "black"),
+        axis.title.x = element_text(size=15, face="bold", color = "black"),  
+        axis.title.y = element_text(size=15, face="bold", color = "black"),
+        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
+        panel.grid.major.x = element_blank()) +
+  ylim(0,20) +
+  geom_text(data = tk.prox.23, aes(x = water.proximity, y = quant, label = cld.prox.23$Letters), size = 5, vjust=-1, hjust = -0.2)
+
+# comparing PM to water data via simple linear regressions  ----------------------------------------------
+S_cyano_pm <- combined_water_air_S_wide %>% 
+  filter(#date < "2023-01-01" & 
+         date <= "2023-06-01" | 
+         date >= "2023-06-14") %>% 
+  filter(avg_cyano_cell_count != 0)
+
+M_cyano_pm <- combined_water_air_M_wide %>% 
+  filter(#date < "2023-01-01" & 
+    date <= "2023-06-01" | 
+      date >= "2023-06-14") %>% 
+  filter(avg_cyano_cell_count != 0)
+
+L_cyano_pm <- combined_water_air_L_wide %>% 
+  filter(#date < "2023-01-01" & 
+    date <= "2023-06-01" | 
+      date >= "2023-06-14") %>% 
+  filter(avg_cyano_cell_count != 0)
+
+# linear regression plots compiled sensors 
+library(patchwork)
+S.plot <- ggplot(S_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`)) +
+  geom_point() + 
+  geom_smooth(method = "glm", se = FALSE) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(title = "<0.5 km resolution") +
+  xlab(expression(bold(cyanobacterial~cell~count~(cells~ml^bold("-1"))))) +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  theme_minimal() 
+fit <- lm(pm2.5 ~ avg_cyano_cell_count, data = S_cyano_pm)
+eq <- as.character(paste("R^2 =", round(summary(fit)$r.squared, 2)))
+# Add R^2 value as a label to the plot
+S.plot.1 <- S.plot + annotate("text", x = Inf, y = -Inf, hjust = 1.5, vjust = -15, label = eq, size = 6)
+S.plot.1
+
+M.plot <- ggplot(M_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`)) +
+  geom_point()+  # Scatter plot
+  geom_smooth(method = "glm", se = FALSE) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(title = "1 km resolution") +
+  xlab(expression(bold(cyanobacterial~cell~count~(cells~ml^bold("-1"))))) +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  theme_minimal() 
+fit <- lm(pm2.5 ~ avg_cyano_cell_count, data = M_cyano_pm)
+eq <- as.character(paste("R^2 =", round(summary(fit)$r.squared, 2)))
+# Add R^2 value as a label to the plot
+M.plot.1 <- M.plot + annotate("text", x = Inf, y = -Inf, hjust = 1.5, vjust = -15, label = eq, size = 6)
+M.plot.1
+
+L.plot <- ggplot(L_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`)) +
+  geom_point() + 
+  xlim(6500,75000) +  # Scatter plot
+  geom_smooth(method = "glm", se = FALSE) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(title = ">1 km resolution") +
+  xlab(expression(bold(cyanobacterial~cell~count~(cells~ml^bold("-1"))))) +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  theme_minimal() 
+fit <- lm(pm2.5 ~ avg_cyano_cell_count, data = L_cyano_pm)
+eq <- as.character(paste("R^2 =", round(summary(fit)$r.squared, 2)))
+# Add R^2 value as a label to the plot
+L.plot.1 <- L.plot + annotate("text", x = Inf, y = -Inf, hjust = 1.5, vjust = -15, label = eq, size = 6)
+L.plot.1
+
+S.plot.1 + M.plot.1 + L.plot.1
+
+# stratifying data by individual sensors
+ggplot(S_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`, color = Name)) +
+  geom_point() +   # Axis labels
+  theme_minimal() + 
+  geom_smooth(method = "glm", se = FALSE) 
+
+ggplot(M_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`, color = Name)) +
+  geom_point() +   # Axis labels
+  theme_minimal() + 
+  geom_smooth(method = "glm", se = FALSE) 
+
+ggplot(L_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`, color = Name)) +
+  geom_point() +   # Axis labels
+  theme_minimal()+ 
+  xlim(6500,75000) + 
+  geom_smooth(method = "glm", se = FALSE) 
+
+# cleaning data for daily time series stratified by sensor
+
+# time series
+sensor.AB <- L_cyano_pm %>% filter(Name == "1318" & date >= "2023-01-01")
+sensor.AB$date <- as.Date(sensor.AB$date)
+# Plot with two y-axes
+ggplot(sensor.AB, aes(x = date)) +
+  geom_line(aes(y = pm2.5, color = "pm2.5")) +
+  geom_line(aes(y = avg_cyano_cell_count / 1000, color = "avg_cyano_cell_count")) +
+  scale_y_continuous(
+    name = "pm2.5",
+    limits = c(0, 60),
+    sec.axis = sec_axis(~ .*1000, name = "avg_cyano_cell_count")
+  ) +
+  labs(x = "Date") +
+  scale_color_manual(values = c("pm2.5" = "blue", "avg_cyano_cell_count" = "red")) +
+  theme_minimal()
+
+
+ggplot(sensor.AB, aes(x=date, y=pm2.5)) + 
+         geom_line()
+
+class(sensor.AB$date)
 
 
 
 
 
-
-
+# Old code below here :-) ------------------------------------------------------------------
 
 # Generate summaries for each sensor at each resolution ----------------------------------------
 # Initialize an empty list to store summary data frames
