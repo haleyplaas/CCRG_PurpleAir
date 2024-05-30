@@ -243,7 +243,7 @@ for (df_name in names(result_list)) {
   }
 }
 
-# Adding dates into each dataframe for easier manipulation later on -------------------------------------------
+# Adding dates into each dataframe for easier manipulation later on 
 # Iterate over each data frame in the list
 for (df_name in names(S_list)) {
   # Extract the date from the dataframe name
@@ -278,7 +278,7 @@ for (df_name in names(L_list)) {
   L_list[[df_name]]$date <- format(date, "%Y-%m-%d")  # Format date as YYYY-MM-DD
 }
 
-# Calculate cyanobacterial indices, chlorophyll a and cyano cell count averages ----------
+# Calculate cyanobacterial indices, chlorophyll a and cyano cell count averages (measures of Intensity) ----------
 # this is working fine, but the issue is that a lot of sensors are dropping due to missing values which will need to be addressed later on
 S_intensity <- list()  
 for (df_name in names(S_list)) {
@@ -318,8 +318,7 @@ for (i in seq_along(S_intensity)) {
     fill(date, .direction = "up")
 }
 
-all_S_cyano_values_wide <- bind_rows(S_intensity)
-all_S_cyano_values_wide$Name <- as.character(all_S_cyano_values_wide$Name)
+all_S_cyano_values_wide.x <- bind_rows(S_intensity) %>% mutate(Name = as.character(Name), date = as.Date(date))
 
 M_intensity <- list()  
 for (df_name in names(M_list)) {
@@ -356,8 +355,7 @@ for (i in seq_along(M_intensity)) {
     fill(date, .direction = "up")
 }
 
-all_M_cyano_values_wide <- bind_rows(M_intensity)
-all_M_cyano_values_wide$Name <- as.character(all_M_cyano_values_wide$Name)
+all_M_cyano_values_wide.x <- bind_rows(M_intensity) %>% mutate(Name = as.character(Name), date = as.Date(date))
 
 L_intensity <- list()  
 for (df_name in names(L_list)) {
@@ -394,135 +392,135 @@ for (i in seq_along(L_intensity)) {
     fill(date, .direction = "up")
 }
 
-all_L_cyano_values_wide <- bind_rows(L_intensity)
-all_L_cyano_values_wide$Name <- as.character(all_L_cyano_values_wide$Name)
+all_L_cyano_values_wide.x <- bind_rows(L_intensity) %>% mutate(Name = as.character(Name), date = as.Date(date))
 
-# pivot_longer for visualizations and combine list into single df -----------------------------
+# Determining Spatial Coverage ---------------------------------------
+# set a different threshold for a bloom ? i.e., 0 is a valid measurement but not a 'bloom', start with ~10,000 cells or a cyano index of X?
+# a cyanobacterial index of 17 ~10K cells/mL, is about lowest detection (10092.53), a cyanobacterial index of 100 = 100,000 cells/mL (~3.6 ug/L chla), and what about chlorophyll? 40 ug/L threshold for Chowan per NC-DEQ, this is a CIcyano of ~168 (which is ~650K cells/mL). Range of CIcyano is between 10K to 7M cells/mL
 
-# Create an empty list to store the result
-S_intensity_longer <- list()
-
-# Loop over each dataframe in the S_intensity list
-for (i in seq_along(S_intensity)) {
-  # Pivot longer to make every column after "date" into a new column
-  pivoted_df <- S_intensity[[i]] %>%
-    pivot_longer(cols = c(-Name,-date),
-                 names_to = "variable",
-                 values_to = "value")
+# Function to calculate daily spatial coverage of blooms 
+process_dataframe <- function(df) {
+  df1 <- df %>%
+    mutate(pixel_type = case_when(
+      band_1 >= 0 & band_1 <= 253 ~ "valid",
+      band_1 == 254 ~ "land",
+      band_1 == 255 ~ "invalid")) %>%
+    mutate(bloom_status = case_when(
+      band_1 >= 0 & band_1 < 100 ~ "non-bloom", # this is where I can change the value for bloom threshold, see notes above
+      band_1 >= 100 & band_1 < 254 ~ "bloom",
+      band_1 == 254 ~ "land",
+      band_1 == 255 ~ "invalid")) %>%
+    mutate(pixel_assignment = case_when(
+      pixel_type == "invalid" ~ "water",
+      pixel_type == "valid" ~ "water",
+      pixel_type == "land" ~ "land"))
   
-  # Store the pivoted dataframe in the S_intensity_longer list
-  S_intensity_longer[[i]] <- pivoted_df
+  df2 <- df1 %>%
+    group_by(date, Name, pixel_assignment) %>%
+    summarise(water_pixels_total = n(), .groups = 'drop') %>% 
+    complete(Name, pixel_assignment = c("water", "land"), fill = list(water_pixels_total = 0)) %>%
+    filter(pixel_assignment != "land") %>% 
+    mutate(water_surface_area = water_pixels_total * 300 * 300)
+  
+  df3 <- df1 %>%
+    group_by(date, Name, bloom_status) %>%
+    summarise(bloom_pixels = n(), .groups = 'drop') %>%
+    complete(date, Name, bloom_status = c("bloom", "non-bloom", "land", "invalid"), fill = list(bloom_pixels = 0)) %>%
+    filter(bloom_status != "land") %>% 
+    pivot_wider(names_from = bloom_status, values_from = bloom_pixels)
+  
+  df4 <- df3 %>% 
+    left_join(df2, by = c("date","Name")) %>%
+    mutate(percent_bloom = signif((bloom / water_pixels_total), digits = 3)) %>% 
+    mutate(surface_area_bloom = signif((percent_bloom * water_surface_area), digits = 3))
+  
+  df5 <- df4 %>% dplyr::select(date, Name, percent_bloom, surface_area_bloom)
+  
+  return(df5)
 }
 
-# completed final large dataframe all bound together
-all_S_cyano_values <- bind_rows(S_intensity_longer)
+# Calculate Spatial Coverage using function for each individual dataframe (single dates)
+processed_list_S <- lapply(S_list, process_dataframe)
+processed_list_M <- lapply(M_list, process_dataframe)
+processed_list_L <- lapply(L_list, process_dataframe)
+# Combine all processed dataframes into a single dataframe (all dates per S, M, L)
+all_S_spatialcov_wide <- bind_rows(processed_list_S) %>% mutate(Name = as.character(Name), date = as.Date(date))
+all_M_spatialcov_wide <- bind_rows(processed_list_M) %>% mutate(Name = as.character(Name), date = as.Date(date))
+all_L_spatialcov_wide <- bind_rows(processed_list_L) %>% mutate(Name = as.character(Name), date = as.Date(date))
+# pivot_longer in case I need it 
 
-# Create an empty list to store the result
-M_intensity_longer <- list()
+# Combining Spatial Coverage data with Intensity data ------------------------------------------
+# wide
+all_S_cyano_values_wide <- left_join(all_S_cyano_values_wide.x, all_S_spatialcov_wide, by = c("Name", "date"))
+all_M_cyano_values_wide <- left_join(all_M_cyano_values_wide.x, all_M_spatialcov_wide, by = c("Name", "date"))
+all_L_cyano_values_wide <- left_join(all_L_cyano_values_wide.x, all_L_spatialcov_wide, by = c("Name", "date"))
 
-# Loop over each dataframe in the M_intensity list
-for (i in seq_along(M_intensity)) {
-  # Pivot longer to make every column after "date" into a new column
-  pivoted_df <- M_intensity[[i]] %>%
-    pivot_longer(cols = c(-Name,-date),
-                 names_to = "variable",
-                 values_to = "value")
+# long
+all_S_cyano_values_long <- all_S_cyano_values_wide %>% 
+  pivot_longer(cols = c(-Name,-date),
+               names_to = "variable",
+               values_to = "value")
+all_M_cyano_values_long <- all_M_cyano_values_wide %>% 
+  pivot_longer(cols = c(-Name,-date),
+               names_to = "variable",
+               values_to = "value")
+all_L_cyano_values_long <- all_L_cyano_values_wide %>% 
+  pivot_longer(cols = c(-Name,-date),
+               names_to = "variable",
+               values_to = "value")
+
+# Generate site description data for each sensor at each resolution ----------------------------------------
+
+# Function to calculate descriptors of data completeness for each sensor/ spatial resolution
+site_descriptors <- function(df) {
+  df1 <- df %>% mutate(pixel_type = case_when(
+      band_1 >= 0 & band_1 <= 253 ~ "valid",
+      band_1 == 254 ~ "land",
+      band_1 == 255 ~ "invalid"))
   
-  # Store the pivoted dataframe in the M_intensity_longer list
-  M_intensity_longer[[i]] <- pivoted_df
+  df2 <- df1 %>%
+    group_by(date, Name, pixel_type) %>%
+    summarise(data_completeness = n(), .groups = 'drop') %>% 
+    complete(date, Name, pixel_type = c("valid", "invalid", "land"), fill = list(data_completeness = 0)) 
+  
+  df3 <- df2 %>% pivot_wider(names_from = pixel_type, values_from = data_completeness) %>% 
+    mutate(percent_water = ifelse(invalid+valid == 0, 0, signif((invalid+valid)/(invalid+valid+land), digits = 3)),
+           percent_complete = ifelse(valid == 0, 0, signif(valid/(invalid+valid+land), digits = 3)),
+           percent_water_complete = ifelse(valid == 0, 0, signif(valid/(invalid+valid), digits = 3)),
+           percent_land = ifelse(land == 0, 0, signif(land/(invalid+valid+land), digits = 3))) %>%
+    mutate(Name = as.character(Name)) %>% 
+    dplyr::select(-invalid,-valid,-land)
+
+  return(df3)
 }
 
-# completed final large dataframe all bound together
-all_M_cyano_values <- bind_rows(M_intensity_longer)
+# Calculate site/ data descriptors
+site_descriptors_S <- lapply(S_list, site_descriptors)
+data_completeness_S <- bind_rows(site_descriptors_S) %>% mutate(Name = as.character(Name), date = as.Date(date))
+avg_data_completeness_S <- data_completeness_S %>% 
+  group_by(Name) %>% 
+  summarise(across(c("percent_water", "percent_complete", "percent_water_complete", "percent_land"), c(mean,sd), na.rm = T)) %>%
+  rename_with(~ gsub("_1$", "_mean", .x), ends_with("_1")) %>%
+  rename_with(~ gsub("_2$", "_sd", .x), ends_with("_2"))
 
-# Create an empty list to store the result
-L_intensity_longer <- list()
+site_descriptors_M <- lapply(M_list, site_descriptors)
+data_completeness_M <- bind_rows(site_descriptors_M) %>% mutate(Name = as.character(Name), date = as.Date(date))
+avg_data_completeness_M <- data_completeness_M %>% 
+  group_by(Name) %>% 
+  summarise(across(c("percent_water", "percent_complete", "percent_water_complete", "percent_land"), c(mean,sd), na.rm = T)) %>%
+  rename_with(~ gsub("_1$", "_mean", .x), ends_with("_1")) %>%
+  rename_with(~ gsub("_2$", "_sd", .x), ends_with("_2"))
 
-# Loop over each dataframe in the L_intensity list
-for (i in seq_along(L_intensity)) {
-  # Pivot longer to make every column after "date" into a new column
-  pivoted_df <- L_intensity[[i]] %>%
-    pivot_longer(cols = c(-Name,-date),
-                 names_to = "variable",
-                 values_to = "value")
-  
-  # Store the pivoted dataframe in the L_intensity_longer list
-  L_intensity_longer[[i]] <- pivoted_df
-}
+site_descriptors_L <- lapply(L_list, site_descriptors)
+data_completeness_L <- bind_rows(site_descriptors_L) %>% mutate(Name = as.character(Name), date = as.Date(date))
+avg_data_completeness_L <- data_completeness_L %>% 
+  group_by(Name) %>% 
+  summarise(across(c("percent_water", "percent_complete", "percent_water_complete", "percent_land"), c(mean,sd), na.rm = T)) %>%
+  rename_with(~ gsub("_1$", "_mean", .x), ends_with("_1")) %>%
+  rename_with(~ gsub("_2$", "_sd", .x), ends_with("_2"))
 
-# completed final large dataframe all bound together
-all_L_cyano_values <- bind_rows(L_intensity_longer)
-
-# Generate data availability summaries for each sensor at each resolution ----------------------------------------
-summary_data_frames_S <- list()
-# Iterate over each data frame in the result list
-for (df_name in names(S_list)) {
-  # Group by "Name" and summarize counts for each category of "band_1"
-  summary_df <- S_list[[df_name]] %>%
-    group_by(Name, date) %>%
-    summarize(`0-253` = sum(band_1 >= 0 & band_1 <= 253),
-              `254` = sum(band_1 == 254),
-              `255` = sum(band_1 == 255)) %>%
-    # Add a new column "water" that sums counts for categories 0-253 and 255
-    mutate(water = `0-253` + `255`,
-           land = `254`,
-           water_surface_area = round((`0-253`+`255`)/(`0-253`+`255`+`254`),2),
-           percent_valid_pixels = round(`0-253` / `water`, 2)) %>%
-    arrange(Name) %>%
-    as.data.frame()
-  
-  # Store the summary data frame in the list with the same name as the data frame
-  summary_data_frames_S[[df_name]] <- summary_df
-}
-
-summary_data_frames_M <- list()
-# Iterate over each data frame in the result list
-for (df_name in names(M_list)) {
-  # Group by "Name" and summarize counts for each category of "band_1"
-  summary_df <- M_list[[df_name]] %>%
-    group_by(Name, date) %>%
-    summarize(`0-253` = sum(band_1 >= 0 & band_1 <= 253),
-              `254` = sum(band_1 == 254),
-              `255` = sum(band_1 == 255)) %>%
-    # Add a new column "water" that sums counts for categories 0-253 and 255
-    mutate(water = `0-253` + `255`,
-           land = `254`,
-           water_surface_area = round((`0-253`+`255`)/(`0-253`+`255`+`254`),2),
-           percent_valid_pixels = round(`0-253` / `water`, 2)) %>%
-    arrange(Name) %>%
-    as.data.frame()
-  
-  # Store the summary data frame in the list with the same name as the data frame
-  summary_data_frames_M[[df_name]] <- summary_df
-}
-
-summary_data_frames_L <- list()
-# Iterate over each data frame in the result list
-for (df_name in names(L_list)) {
-  # Group by "Name" and summarize counts for each category of "band_1"
-  summary_df <- L_list[[df_name]] %>%
-    group_by(Name, date) %>%
-    summarize(`0-253` = sum(band_1 >= 0 & band_1 <= 253),
-              `254` = sum(band_1 == 254),
-              `255` = sum(band_1 == 255)) %>%
-    # Add a new column "water" that sums counts for categories 0-253 and 255
-    mutate(water = `0-253` + `255`,
-           land = `254`,
-           water_surface_area = round((`0-253`+`255`)/(`0-253`+`255`+`254`),2),
-           percent_valid_pixels = round(`0-253` / `water`, 2)) %>%
-    arrange(Name) %>%
-    as.data.frame()
-  
-  # Store the summary data frame in the list with the same name as the data frame
-  summary_data_frames_L[[df_name]] <- summary_df
-}
-
-
-# Step 1: Extract unique sensor names from the first dataframe in S_intensity
+# Step 1: Extract unique sensor names from the first dataframe in S_intensity -----------------------
 unique_sensor_names <- unique(L_intensity[[1]]$Name)
-
-
-
 
 
 # Combining Air Quality data with Water Quality data -----------------------------------------------
@@ -546,7 +544,7 @@ compiled_purpleair_data <- bind_rows(purpleair_data) %>%
           select(Name, time_stamp, pm1_corrected_by_RH, pm2.5_corrected_by_RH, pm10_corrected_by_RH) %>% 
           rename(date = time_stamp, pm1 = pm1_corrected_by_RH, pm2.5 = pm2.5_corrected_by_RH, 
                  pm10 = pm10_corrected_by_RH)  %>%
-          mutate(across(-c(date, Name), ~ifelse(. < 0, 0, .)))
+          mutate(across(-c(date, Name), ~ifelse(. < 0, 0, .))) %>% mutate(date = as.Date(date))
 
 # longer for visualizations
 compiled_purpleair_data_longer <- compiled_purpleair_data %>% 
@@ -567,7 +565,7 @@ combined_water_air_S_long <- rbind(compiled_purpleair_data_longer, all_S_cyano_v
     Name == "1806" ~ "<1km",
     Name == "5822" ~ "<.5km",
     Name == "5838" ~ "<1km",
-    Name == "9875" ~ "<.5km"))
+    Name == "9875" ~ "<.5km")) %>% mutate(date = as.Date(date))
 combined_water_air_M_long <- rbind(compiled_purpleair_data_longer, all_M_cyano_values) %>% 
   mutate(water.proximity = case_when(
     Name == "1318" ~ "<1km",
@@ -582,7 +580,7 @@ combined_water_air_M_long <- rbind(compiled_purpleair_data_longer, all_M_cyano_v
     Name == "1806" ~ "<1km",
     Name == "5822" ~ "<.5km",
     Name == "5838" ~ "<1km",
-    Name == "9875" ~ "<.5km"))
+    Name == "9875" ~ "<.5km")) %>% mutate(date = as.Date(date))
 combined_water_air_L_long <- rbind(compiled_purpleair_data_longer, all_L_cyano_values) %>% 
   mutate(water.proximity = case_when(
     Name == "1318" ~ "<1km",
@@ -597,7 +595,7 @@ combined_water_air_L_long <- rbind(compiled_purpleair_data_longer, all_L_cyano_v
     Name == "1806" ~ "<1km",
     Name == "5822" ~ "<.5km",
     Name == "5838" ~ "<1km",
-    Name == "9875" ~ "<.5km"))
+    Name == "9875" ~ "<.5km")) %>% mutate(date = as.Date(date))
 
 # wider for other comparisons / viz
 combined_water_air_S_wide <- left_join(compiled_purpleair_data, all_S_cyano_values_wide, by = c("Name", "date")) %>% 
@@ -645,6 +643,42 @@ combined_water_air_L_wide <- left_join(compiled_purpleair_data, all_L_cyano_valu
     Name == "5822" ~ "<.5km",
     Name == "5838" ~ "<1km",
     Name == "9875" ~ "<.5km"))
+
+# Adding meteorological data to the dataframes ---------------------------------------------
+weather.csv.folder <- "Q:\\My Drive\\Code Repositories\\R\\CCRG\\WeatherData"
+met.files <- list.files(weather.csv.folder, pattern = "\\.csv$", full.names = TRUE)
+dataframes <- list()
+# Loop through each file, read it, and store it in the list
+for (file in met.files) {
+  # Extract filename without extension
+  file_name <- tools::file_path_sans_ext(basename(file))
+  
+  # Read the CSV file and store it as a dataframe with the filename as the dataframe name
+  assign(file_name, read.csv(file))
+  
+  # Append the dataframe name to the list
+  dataframes[[file_name]] <- get(file_name)
+  
+  print(names(dataframes))
+}
+
+# Assigning weather to specific sensors 
+met.5838 <- Edenton %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
+met.5838$Name <- "5838" 
+met.1348 <- Edenton %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
+met.1348$Name <- "1348" 
+met.5822 <- `Arrowhead Beach` %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
+met.5822$Name <- "5822" 
+met.1334 <- `Arrowhead Beach` %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
+met.1334$Name <- "1334" 
+
+# combining individual met data
+all.met.data <- rbind(met.1334,met.1348,met.5822,met.5838) %>% dplyr::select(Name, date, tempmax, temp, humidity, precip, windgust, windspeed, winddir, sealevelpressure, cloudcover, solarradiation, solarenergy)
+
+# adding met data to air_water_dataframes
+combined_water_air_met_S_wide <- left_join(combined_water_air_S_wide, all.met.data, by = c("Name", "date"))
+combined_water_air_met_M_wide <- left_join(combined_water_air_M_wide, all.met.data, by = c("Name", "date"))
+combined_water_air_met_L_wide <- left_join(combined_water_air_L_wide, all.met.data, by = c("Name", "date"))
 
 # Playing around with plots ------------------------------------------------------------------
 # color palettes and other theme specifications
@@ -1007,7 +1041,7 @@ ggplot(sensor.AB, aes(x = date)) +
 ggplot(sensor.AB, aes(x=date, y=pm2.5)) + 
          geom_line()
 
-class(sensor.AB$date)
+
 
 
 
