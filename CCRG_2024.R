@@ -10,195 +10,250 @@ library(httr);library(jsonlite);library(dplyr)
 #imported_raster # see properties of the file 
 
 # PurpleAir Data Cleaning --------------------------------------------------------------------------
-folder_path <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\purpleairdata\\cleaned_sensor_data"
-
-# Get the list of file names in the folder
-file_names <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
-
-# Create an empty list to store the data frames
-data_frames <- list()
-
-# Loop through each file name and read the CSV file
-## compare a and b channels and remove channels where a and b disagree according to Barkjohn et al., 2021
-### apply relative humidity correction factor to pm1 pm2.5 and pm10 readings, although not sure if the correction factor varies for pm1 and pm10 -----------------------------
-for (i in seq_along(file_names)) {
+# Loop and read in temperature files and clean 
+folder_path_temp <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\purpleairdata\\tempdata"
+file_names_temp <- list.files(path = folder_path_temp, pattern = "\\.csv$", full.names = TRUE)
+data_frames_temp <- list()
+for (i in seq_along(file_names_temp)) {
   # Read the CSV file
-  data <- read.csv(file_names[i])
+  data <- read.csv(file_names_temp[i])
+  
+  # Remove everything but time_stamp and temperature columns
+  data <- data %>% dplyr::select(data.1, data.2) %>% rename(time_stamp = data.1, temperature = data.2)
   
   # Convert the 'time_stamp' column from Unix time to POSIXct
   data$time_stamp <- as.POSIXct(data$time_stamp, origin = "1970-01-01 00:00:00")
-  
-  # Convert the 'time_stamp' column to the desired format
   data$time_stamp <- format(data$time_stamp, "%Y-%m-%d")
-  
-  # Perform calculations on columns 'pm1_a' and 'pm1_b'
-  if ("pm1_a" %in% colnames(data) && "pm1_b" %in% colnames(data)) {
-    data$sensor_dif <- data$pm1_a - data$pm1_b
-    data$channel_comp <- ((data$pm1_a - data$pm1_b) * 2) / (data$pm1_a + data$pm1_b)
-    
-    # Remove rows where sensor_dif > 5 or channel_comp > 2
-    data <- data[data$sensor_dif <= 5 & data$sensor_dif >= -5 & data$channel_comp <= 0.61 & data$channel_comp >= -0.61, ]
-    
-    #find average of a and b sensors
-    data$pm1_avg <- ((data$pm1_a + data$pm1_b)) / 2
-  }
-  
-  # Perform calculations on columns 'pm2.5_a' and 'pm2.5_b'
-  if ("pm2.5_a" %in% colnames(data) && "pm2.5_b" %in% colnames(data)) {
-    data$sensor_dif <- data$pm2.5_a - data$pm2.5_b
-    data$channel_comp <- ((data$pm2.5_a - data$pm2.5_b) * 2) / (data$pm2.5_a + data$pm2.5_b)
-    
-    # Remove rows where sensor_dif > 5 or channel_comp > 2
-    data <- data[data$sensor_dif <= 5 & data$sensor_dif >= -5 & data$channel_comp <= 0.61 & data$channel_comp >= -0.61, ]
-    
-    #find average of a and b sensors
-    data$pm2.5_avg <- ((data$pm2.5_a + data$pm2.5_b)) / 2
-  }
-  
-  # Perform calculations on columns 'pm10_a' and 'pm10_b'
-  if ("pm10_a" %in% colnames(data) && "pm10_b" %in% colnames(data)) {
-    data$sensor_dif <- data$pm10_a - data$pm10_b
-    data$channel_comp <- ((data$pm10_a - data$pm10_b) * 2) / (data$pm10_a + data$pm10_b)
-    
-    # Remove rows where sensor_dif > 5 or channel_comp > 2
-    data <- data[data$sensor_dif <= 5 & data$sensor_dif >= -5 & data$channel_comp <= 0.61 & data$channel_comp >= -0.61, ]
-    
-    #find average of a and b sensors
-    data$pm10_avg <- ((data$pm10_a + data$pm10_b)) / 2
-  }
-  
-  # Calculate the 'corrected_by_RH' column for pm1
-  if ("pm1_avg" %in% colnames(data) && "humidity" %in% colnames(data)) {
-    data$pm1_corrected_by_RH <- 0.524 * data$pm1_avg - 0.0862 * data$humidity + 5.75
-  }
-  
-  # Calculate the 'corrected_by_RH' column for pm2.5
-  if ("pm2.5_avg" %in% colnames(data) && "humidity" %in% colnames(data)) {
-    data$pm2.5_corrected_by_RH <- 0.524 * data$pm2.5_avg - 0.0862 * data$humidity + 5.75
-  }
-  
-  # Calculate the 'corrected_by_RH' column for pm2.5
-  if ("pm10_avg" %in% colnames(data) && "humidity" %in% colnames(data)) {
-    data$pm10_corrected_by_RH <- 0.524 * data$pm10_avg - 0.0862 * data$humidity + 5.75
-  }
   
   # Remove duplicate rows
   data <- data[!duplicated(data), ]
   
-  # Extract the last 6 characters of the file name
-  truncated_file_name <- substr(basename(file_names[i]), nchar(basename(file_names[i])) - 9, nchar(basename(file_names[i])))
+  # Extract the first 6 characters of the file name
+  truncated_file_name <- paste0(substr(basename(file_names_temp[i]), 3, 8), "_temp")
+  
+  # Store the data frame and truncated file name in the list
+  data_frames_temp[[i]] <- list(truncated_file_name = truncated_file_name, data = data)
+}
+
+# Combining sensor values spread across 2 excel files per limitations in API call limits
+combined_data_frames_temp <- list()
+for (i in seq_along(data_frames_temp)) {
+  # Extract the first four characters of the truncated_file_name
+  key <- substr(data_frames_temp[[i]]$truncated_file_name, 1, 4)
+  
+  # Check if this key already exists in the combined_data_frames list
+  if (!key %in% names(combined_data_frames_temp)) {
+    # If not, create a new entry in the list
+    combined_data_frames_temp[[key]] <- data_frames_temp[[i]]$data
+  } else {
+    # If yes, combine the current data frame with the existing one
+    combined_data_frames_temp[[key]] <- rbind(combined_data_frames_temp[[key]], data_frames_temp[[i]]$data)
+  }
+}
+
+# Loop and read in PM2.5 files and clean 
+folder_path <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\purpleairdata\\pmdata"
+file_names <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
+data_frames <- list()
+for (i in seq_along(file_names)) {
+  data <- read.csv(file_names[i])
+  data <- data %>% dplyr::select(data.1, data.2, data.5, data.6) %>% 
+                          rename(time_stamp = data.1, temperature = data.2, pm2.5_a = data.5, pm2.5_b = data.6)
+  
+  # Convert the 'time_stamp' column from Unix time to POSIXct
+  data$time_stamp <- as.POSIXct(data$time_stamp, origin = "1970-01-01 00:00:00")
+  data$time_stamp <- format(data$time_stamp, "%Y-%m-%d")
+  
+  # Remove duplicate rows
+  data <- data[!duplicated(data), ]
+  
+  # Extract the first 6 characters of the file name
+  truncated_file_name <- paste0(substr(basename(file_names[i]), 3, 8), "_pm")
   
   # Store the data frame and truncated file name in the list
   data_frames[[i]] <- list(truncated_file_name = truncated_file_name, data = data)
-
 }
 
-# Create an empty list to store the data frames
-result_data_frames <- list()
-
-# Loop through each element in data_frames
+# Combining sensor values spread across 2 excel files per limitations in API call limits
+combined_data_frames <- list()
 for (i in seq_along(data_frames)) {
-  # Extract the truncated file name and data from the list
-  truncated_file_name <- data_frames[[i]]$truncated_file_name
-  data <- data_frames[[i]]$data
+  # Extract the first four characters of the truncated_file_name
+  key <- substr(data_frames[[i]]$truncated_file_name, 1, 4)
   
-  # Assign the data frame to a variable with the truncated file name
-  assign(truncated_file_name, data)
-  
-  # Store the data frame in the result_data_frames list
-  result_data_frames[[i]] <- get(truncated_file_name)
+  # Check if this key already exists in the combined_data_frames list
+  if (!key %in% names(combined_data_frames)) {
+    # If not, create a new entry in the list
+    combined_data_frames[[key]] <- data_frames[[i]]$data
+  } else {
+    # If yes, combine the current data frame with the existing one
+    combined_data_frames[[key]] <- rbind(combined_data_frames[[key]], data_frames[[i]]$data)
+  }
 }
 
+# Merging the temperature data with the pm data
+all_purple_air_data <- list()
+merge_by_key_and_time_stamp <- function(df1, df2) {
+  merged_list <- list()
+  for (key in union(names(df1), names(df2))) {
+    if (key %in% names(df1) & key %in% names(df2)) {
+      merged_list[[key]] <- merge(df1[[key]], df2[[key]], by = "time_stamp", all = TRUE)
+    } else if (key %in% names(df1)) {
+      merged_list[[key]] <- df1[[key]]
+    } else {
+      merged_list[[key]] <- df2[[key]]
+    }
+  }
+  return(merged_list)
+}
 
-# Now result_data_frames is a list where each element is a data frame named according to the truncated file name -------
-# Now to manually merge files because ChatGPT couldnt figure it out
-sensor.1318 <- rbind(`151318.csv`, `1318_2.csv`) %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.1334 <- rbind(`151334.csv`, `1334_2.csv`) %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.1344 <- rbind(`151344.csv`, `1344_2.csv`) %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.5822 <- rbind(`145822.csv`, `5822_2.csv`) %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.1348 <- rbind(`151348.csv`, `1348_2.csv`) %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.1358 <- rbind(`151358.csv`, `1358_2.csv`) %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.1362 <- rbind(`151362.csv`, `1362_2.csv`) %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.5838 <- rbind(`145838.csv`, `5838_2.csv`) %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.1806 <- rbind(`151806.csv`, `1806_2.csv`) %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.9875 <- `9875_2.csv` %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.1378 <- `1378_2.csv` %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.1680 <- `1680_2.csv` %>% distinct(time_stamp, .keep_all = TRUE)
-sensor.1806 <- `1806_2.csv` %>% distinct(time_stamp, .keep_all = TRUE)
+# Merge the two lists by their keys and time_stamp
+all_purple_air_data <- merge_by_key_and_time_stamp(combined_data_frames, combined_data_frames_temp)
+all_purple_air_data <- lapply(all_purple_air_data, function(df) {
+                              df %>% 
+                              rename(humidity = temperature.x, temperature = temperature.y)
+})
 
-## filling in NA values with values from nearest sensors on those dates
-library(dplyr)
+# Apply correction factors for measurement errors and humidity
+corrected_purple_air_data <- list()
+corrected_purple_air_data.1 <- list()
+# For loop to perform the humidity correction factors from the literature
+for (i in seq_along(all_purple_air_data)) {
+  data <- all_purple_air_data[[i]]  # Extract the dataframe
+  
+  # CONUS correction factor (Barkjohn et al 2021)
+  if ("pm2.5_a" %in% colnames(data) && "pm2.5_b" %in% colnames(data)) {
+    data$sensor_dif <- data$pm2.5_a - data$pm2.5_b
+    data$channel_comp <- ((data$pm2.5_a - data$pm2.5_b) * 2) / (data$pm2.5_a + data$pm2.5_b)
+    
+    # Remove rows where sensor_dif > 5 or channel_comparison > .61
+    data <- data[data$sensor_dif <= 5 & data$sensor_dif >= -5 & data$channel_comp <= 0.61 & data$channel_comp >= -0.61, ]
+    data$pm2.5_avg <- (data$pm2.5_a + data$pm2.5_b) / 2
+  }
+  if ("pm2.5_avg" %in% colnames(data) && "humidity" %in% colnames(data)) {
+    data$CONUS_pm2.5 <- 0.524 * data$pm2.5_avg - 0.0862 * data$humidity + 5.75
+  }
+  
+  # SE specific correction factor (Mathieu-Campbell et al 2024)
+  data.1 <- all_purple_air_data[[i]]  # Extract the dataframe
+  
+  # Remove points > 1000 and <= 1.5
+  data.1 <- data.1[data.1$pm2.5_a <= 1000 & data.1$pm2.5_a >= 1.5 &
+                     data.1$pm2.5_b <= 1000 & data.1$pm2.5_b >= 1.5, ]
+  
+  data.1$sensor_dif <- data.1$pm2.5_a - data.1$pm2.5_b
+  data.1$channel_comp <- ((data.1$pm2.5_a - data.1$pm2.5_b) * 2) / (data.1$pm2.5_a + data.1$pm2.5_b)
+  
+  # Filter based on conditions
+ data.1 <- subset(data.1, 
+                   !(pm2.5_a <= 25 & pm2.5_b <= 25 & (sensor_dif >= 5 | channel_comp >= 0.2 | channel_comp <= -0.2)) &
+                   !(pm2.5_a >= 25 & pm2.5_b >= 25 & (channel_comp >= 0.2 | channel_comp <= -0.2)))
+  
+  # Calculate pm2.5_avg_SE and SE.pm2.5
+ data.1$pm2.5_avg_SE <- (data.1$pm2.5_a + data.1$pm2.5_b) / 2
+ data.1$SE.pm2.5 <- 4.3295358 + (0.4182906*data.1$pm2.5_avg_SE) - (0.0445768* data.1$humidity) + (0.0752867*data.1$temperature)
+  
+  # Remove duplicate rows
+  data <- data[!duplicated(data), ]
+  data.1 <- data.1[!duplicated(data.1), ]
+  
+  # Extract the last 6 characters of the file name
+  truncated_file_name <- substr(basename(file_names[i]), nchar(basename(file_names[i])) - 9, nchar(basename(file_names[i])))
+  
+  corrected_purple_air_data[[i]] <- list(truncated_file_name = truncated_file_name, data = data)
+  corrected_purple_air_data.1[[i]] <- list(truncated_file_name = truncated_file_name, data = data.1)
+}
 
-# 1318 has missing humidity values, using RH values from nearest sensor (1344) operating at the time to fill in these NAs 
-# Left join to merge data based on time_stamp
+# Merging both correction factor results into one list
+merged_corrected_purple_air_data <- list()
+for (i in seq_along(corrected_purple_air_data)) {
+  data <- corrected_purple_air_data[[i]]$data
+  se_pm25 <- corrected_purple_air_data.1[[i]]$data[, c("time_stamp", "pm2.5_avg_SE", "SE.pm2.5")]  # Extract time_stamp and SE.pm2.5
+  merged_data <- merge(data, se_pm25, by = "time_stamp", all.x = TRUE)
+  merged_corrected_purple_air_data[[i]] <- list(truncated_file_name = corrected_purple_air_data[[i]]$truncated_file_name, data = merged_data)
+}
+
+#renaming each and pulling each sensor out into its own dataframe
+sensor.5822 <- merged_corrected_purple_air_data[[1]]$data
+sensor.5838 <- merged_corrected_purple_air_data[[2]]$data
+sensor.1318 <- merged_corrected_purple_air_data[[3]]$data
+sensor.1334 <- merged_corrected_purple_air_data[[4]]$data
+sensor.1344 <- merged_corrected_purple_air_data[[5]]$data
+sensor.1348 <- merged_corrected_purple_air_data[[6]]$data
+sensor.1358 <- merged_corrected_purple_air_data[[7]]$data
+sensor.1362 <- merged_corrected_purple_air_data[[8]]$data
+sensor.1378 <- merged_corrected_purple_air_data[[9]]$data
+sensor.1562 <- merged_corrected_purple_air_data[[10]]$data
+sensor.1680 <- merged_corrected_purple_air_data[[11]]$data
+sensor.1806 <- merged_corrected_purple_air_data[[12]]$data
+sensor.9875 <- merged_corrected_purple_air_data[[13]]$data
+
+# Filling in missing humidity, temperature values and recalculating 
+# 1318 has missing humidity and temperature values -- as well as values humidity = 100 and temp = -223 for all after 10-22-2022, using RH values from nearest sensor (1344) operating at the time to fill in these NAs 
+library(lubridate)
 merged_data <- full_join(sensor.1318, sensor.1344, by = "time_stamp", suffix = c("_1318", "_1344"))
-# Use coalesce to fill in missing values in humidity_1318 with values from humidity_1344
+cutoff_date <- ymd("2022-10-21")
 merged_data <- merged_data %>%
-  mutate(humidity_1318 = coalesce(humidity_1318, humidity_1344))
-# Select the columns you need
-new.RH.values.1318 <- merged_data %>% dplyr::select(time_stamp, humidity_1318)
-# use full_join to add the humidity column back in to sensor.1318
-sensor.1318.1 <- full_join(new.RH.values.1318, sensor.1318, by = "time_stamp") %>% dplyr::select(-humidity) %>% rename(humidity = humidity_1318)
-#re-calculate adjusted values for PM based on new RH values inputted
-sensor.1318.1 <- sensor.1318.1 %>% mutate(pm1_corrected_by_RH = 0.524 * pm1_avg - 0.0862 * humidity + 5.75, pm2.5_corrected_by_RH = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75, pm10_corrected_by_RH = 0.524 * pm10_avg - 0.0862 * humidity + 5.75)
-# renaming to original file name 
+  mutate(humidity_1318 = if_else(time_stamp > cutoff_date, humidity_1344, humidity_1318),
+         temperature_1318 = if_else(time_stamp > cutoff_date, temperature_1344, temperature_1318))
+new_RH_values_1318 <- merged_data %>% dplyr::select(time_stamp, humidity_1318, temperature_1318)
+sensor.1318.1 <- full_join(new_RH_values_1318, sensor.1318, by = "time_stamp") %>%
+  dplyr::select(-humidity, -temperature) %>%
+  rename(humidity = humidity_1318, temperature = temperature_1318)
+sensor.1318.1 <- sensor.1318.1 %>%
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
+         SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
 sensor.1318 <- sensor.1318.1
 
-# 1348 has missing humidity values, using RH values from nearest sensor (5838) operating at the time to fill in these NAs 
-# Left join to merge data based on time_stamp
-merged_data <- full_join(sensor.1348, sensor.5838, by = "time_stamp", suffix = c("_1348", "_5838"))
-# Use coalesce to fill in missing values in humidity_1348 with values from humidity_5838
+# same issue for 9875
+merged_data <- full_join(sensor.9875, sensor.1344, by = "time_stamp", suffix = c("_9875", "_1344"))
+cutoff_date <- ymd("2022-10-21")
 merged_data <- merged_data %>%
-  mutate(humidity_1348 = coalesce(humidity_1348, humidity_5838))
-# Select the columns you need
-new.RH.values.1348 <- merged_data %>% dplyr::select(time_stamp, humidity_1348)
-# use full_join to add the humidity column back in to sensor.1348
-sensor.1348.1 <- full_join(new.RH.values.1348, sensor.1348, by = "time_stamp") %>% dplyr::select(-humidity) %>% rename(humidity = humidity_1348)
-#re-calculate adjusted values for PM based on new RH values inputted
-sensor.1348.1 <- sensor.1348.1 %>% mutate(pm1_corrected_by_RH = 0.524 * pm1_avg - 0.0862 * humidity + 5.75, pm2.5_corrected_by_RH = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75, pm10_corrected_by_RH = 0.524 * pm10_avg - 0.0862 * humidity + 5.75)
-# renaming to original file name 
+  mutate(humidity_9875 = if_else(time_stamp > cutoff_date, humidity_1344, humidity_9875),
+         temperature_9875 = if_else(time_stamp > cutoff_date, temperature_1344, temperature_9875))
+new_RH_values_9875 <- merged_data %>% dplyr::select(time_stamp, humidity_9875, temperature_9875)
+sensor.9875.1 <- full_join(new_RH_values_9875, sensor.9875, by = "time_stamp") %>%
+  dplyr::select(-humidity, -temperature) %>%
+  rename(humidity = humidity_9875, temperature = temperature_9875)
+sensor.9875.1 <- sensor.9875.1 %>%
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
+         SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
+sensor.9875 <- sensor.9875.1
+
+# 1348 has missing humidity and temp values, using values from nearest sensor (5838) operating at the time to fill in these NAs 
+merged_data <- full_join(sensor.1348, sensor.5838, by = "time_stamp", suffix = c("_1348", "_5838"))
+merged_data <- merged_data %>% mutate(humidity_1348 = coalesce(humidity_1348, humidity_5838), temperature_1348 = coalesce(temperature_1348, temperature_5838))
+new.RH.values.1348 <- merged_data %>% dplyr::select(time_stamp, humidity_1348, temperature_1348)
+sensor.1348.1 <- full_join(new.RH.values.1348, sensor.1348, by = "time_stamp") %>% dplyr::select(-humidity, -temperature) %>% rename(humidity = humidity_1348, temperature = temperature_1348)
+sensor.1348.1 <- sensor.1348.1 %>% 
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
+         SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
 sensor.1348 <- sensor.1348.1
 
-# 1680 has missing humidity values, using RH values from nearest sensor (5838) operating at the time to fill in these NAs 
-# Left join to merge data based on time_stamp
+# 1680 -- using values from nearest sensor (5838) operating at the time to fill in these NAs 
 merged_data <- full_join(sensor.1680, sensor.5838, by = "time_stamp", suffix = c("_1680", "_5838"))
-# Use coalesce to fill in missing values in humidity_1680 with values from humidity_5838
-merged_data <- merged_data %>%
-  mutate(humidity_1680 = coalesce(humidity_1680, humidity_5838))
-# Select the columns you need
-new.RH.values.1680 <- merged_data %>% dplyr::select(time_stamp, humidity_1680)
-# use full_join to add the humidity column back in to sensor.1680
-sensor.1680.1 <- full_join(new.RH.values.1680, sensor.1680, by = "time_stamp") %>% dplyr::select(-humidity) %>% rename(humidity = humidity_1680)
-#re-calculate adjusted values for PM based on new RH values inputted
-sensor.1680.1 <- sensor.1680.1 %>% mutate(pm1_corrected_by_RH = 0.524 * pm1_avg - 0.0862 * humidity + 5.75, pm2.5_corrected_by_RH = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75, pm10_corrected_by_RH = 0.524 * pm10_avg - 0.0862 * humidity + 5.75) 
+merged_data <- merged_data %>% mutate(humidity_1680 = coalesce(humidity_1680, humidity_5838), temperature_1680 = coalesce(temperature_1680, temperature_5838))
+new.RH.values.1680 <- merged_data %>% dplyr::select(time_stamp, humidity_1680 , temperature_1680)
+sensor.1680.1 <- full_join(new.RH.values.1680, sensor.1680, by = "time_stamp") %>% dplyr::select(-humidity, -temperature) %>% rename(humidity = humidity_1680, temperature = temperature_1680)
+sensor.1680.1 <- sensor.1680.1 %>%  
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
+  SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
 # renaming to original file name 
 sensor.1680 <- sensor.1680.1
 
-# 5822 has missing humidity values, using RH values from nearest sensor (1334) operating at the time to fill in these NAs 
-# Left join to merge data based on time_stamp
+# 5822 -- using values from nearest sensor (1334) operating at the time to fill in these NAs 
 merged_data <- full_join(sensor.5822, sensor.1334, by = "time_stamp", suffix = c("_5822", "_1334"))
-# Use coalesce to fill in missing values in humidity_5822 with values from humidity_1334
-merged_data <- merged_data %>%
-  mutate(humidity_5822 = coalesce(humidity_5822, humidity_1334))
-# Select the columns you need
-new.RH.values.5822 <- merged_data %>% dplyr::select(time_stamp, humidity_5822)
-# use full_join to add the humidity column back in to sensor.5822
-sensor.5822.1 <- full_join(new.RH.values.5822, sensor.5822, by = "time_stamp") %>% dplyr::select(-humidity) %>% rename(humidity = humidity_5822)
-#re-calculate adjusted values for PM based on new RH values inputted
-sensor.5822.1 <- sensor.5822.1 %>% mutate(pm1_corrected_by_RH = 0.524 * pm1_avg - 0.0862 * humidity + 5.75, pm2.5_corrected_by_RH = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75, pm10_corrected_by_RH = 0.524 * pm10_avg - 0.0862 * humidity + 5.75) 
-# renaming to original file name 
+merged_data <- merged_data %>% mutate(humidity_5822 = coalesce(humidity_5822, humidity_1334), temperature_5822 = coalesce(temperature_5822, temperature_1334))
+new.RH.values.5822 <- merged_data %>% dplyr::select(time_stamp, humidity_5822, temperature_5822)
+sensor.5822.1 <- full_join(new.RH.values.5822, sensor.5822, by = "time_stamp") %>% dplyr::select(-humidity, -temperature) %>% rename(humidity = humidity_5822, temperature = temperature_5822)
+sensor.5822.1 <- sensor.5822.1 %>% 
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
+         SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
 sensor.5822 <- sensor.5822.1
 
-# List all objects in the environment
+# Compiling purpleair data back into a list 
 all_objects <- ls()
-
-# Filter objects that start with "Sensor." followed by four letters
 sensor_objects <- grep("^sensor\\.\\w{4}$", all_objects, value = TRUE)
-
-# Create a list combining all the matching dataframes
 pa.sensor.list <- lapply(sensor_objects, get)
-
-# If you want to name the list with the object names
 names(pa.sensor.list) <- sensor_objects
 
 # CyAN Cyanobacterial Index (digital number DN) data from SEADAS Pixel Extraction ---------------------------------------------- 
@@ -544,7 +599,7 @@ avg_data_completeness_L <- data_completeness_L %>%
 # List of dataframes to combine
 sensor_names <- c("sensor.1318", "sensor.1344", "sensor.1348", "sensor.1358", 
                   "sensor.1362", "sensor.1378", "sensor.1680", "sensor.1806", 
-                  "sensor.5822", "sensor.5838", "sensor.9875", "sensor.1334")
+                  "sensor.5822", "sensor.5838", "sensor.9875", "sensor.1334", "sensor.1562")
 
 # Initialize an empty list to store combined dataframes
 purpleair_data <- list()
@@ -558,14 +613,13 @@ for (sensor_name in sensor_names) {
 }
 
 compiled_purpleair_data <- bind_rows(purpleair_data) %>% 
-          dplyr::select(Name, time_stamp, pm1_corrected_by_RH, pm2.5_corrected_by_RH, pm10_corrected_by_RH) %>% 
-          rename(date = time_stamp, pm1 = pm1_corrected_by_RH, pm2.5 = pm2.5_corrected_by_RH, 
-                 pm10 = pm10_corrected_by_RH)  %>%
+          dplyr::select(Name, time_stamp, CONUS_pm2.5, SE.pm2.5) %>% 
+          rename(date = time_stamp, pm2.5_CONUS = CONUS_pm2.5, pm2.5_SE = SE.pm2.5)  %>%
           mutate(across(-c(date, Name), ~ifelse(. < 0, 0, .))) %>% mutate(date = as.Date(date))
 
 compiled_purpleair_data_NOT_RH_CORR <- bind_rows(purpleair_data) %>% 
-  dplyr::select(Name, time_stamp, pm1_avg, pm2.5_avg, pm10_avg) %>% 
-  rename(date = time_stamp, pm1 = pm1_avg, pm2.5 = pm2.5_avg, pm10 = pm10_avg)  %>%
+  dplyr::select(Name, time_stamp, pm2.5_avg) %>% 
+  rename(date = time_stamp, pm2.5 = pm2.5_avg)  %>%
   mutate(across(-c(date, Name), ~ifelse(. < 0, 0, .))) %>% mutate(date = as.Date(date))
 
 # longer for visualizations
@@ -701,9 +755,13 @@ met.1318 <- `Elizabeth City` %>% rename(Name = name, date = datetime) %>% mutate
 met.1318$Name <- "1318" 
 met.1806 <- `OBX` %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
 met.1806$Name <- "1806" 
+met.1362 <- `Nixonton` %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
+met.1362$Name <- "1362" 
+met.1378 <- `Hertford` %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
+met.1378$Name <- "1378" 
 
 # combining individual met data
-all.met.data <- rbind(met.1334,met.1348,met.5822,met.5838,met.1344,met.9875,met.1318,met.1806) %>% dplyr::select(Name, date, tempmax, temp, humidity, precip, windgust, windspeed, winddir, sealevelpressure, cloudcover, solarradiation, solarenergy)
+all.met.data <- rbind(met.1334,met.1348,met.5822,met.5838,met.1344,met.9875,met.1318,met.1806,met.1362,met.1378) %>% dplyr::select(Name, date, tempmax, temp, humidity, precip, windgust, windspeed, winddir, sealevelpressure, cloudcover, solarradiation, solarenergy)
 
 # adding met data to air_water_dataframes
 combined_water_air_met_S_wide <- full_join(combined_water_air_S_wide, all.met.data, by = c("Name", "date"))
@@ -759,7 +817,7 @@ IMPROVE_network <- IMPROVE_network_all %>% dplyr::select(`Parameter.Name`, Date,
 
 CO_from_Hampton <- Hampton_PM_all %>% dplyr::select(`Parameter.Name`, `Duration.Description`, `Date..Local.`, `Arithmetic.Mean`) %>% filter(`Parameter.Name` == "Carbon monoxide", `Duration.Description` == "8-HR RUN AVG END HOUR") %>% mutate( `Parameter.Name` = as.character(`Parameter.Name`), `Date..Local.` = as.Date(`Date..Local.`, "%Y-%m-%d"), `Arithmetic.Mean` = as.numeric(`Arithmetic.Mean`)) %>% dplyr::select(-`Duration.Description`, -`Parameter.Name`) %>% rename(date = `Date..Local.`, `CO` = `Arithmetic.Mean`) %>% distinct()
 
-CO_SO2_from_Hampton <- Hampton_PM_all %>% dplyr::select(`Parameter.Name`, `Date..Local.`, `Arithmetic.Mean`) %>% filter(`Parameter.Name` == "Carbon monoxide" | `Parameter.Name` == `Sulfur dioxide`) %>% mutate( `Parameter.Name` = as.character(`Parameter.Name`), `Date..Local.` = as.Date(`Date..Local.`, "%m/%d/%Y"), `Arithmetic.Mean` = as.numeric(`Arithmetic.Mean`)) %>% pivot_wider(names_from = `Parameter.Name`, values_from = `Arithmetic.Mean`) %>% rename(CO = `Carbon monoxide`, SO2 = `Sulfur dioxide`, date = `Date..Local.`) ## ENSURE DATES ARE READING IN CORRECTLY TOMORROW FOR ALL WEATHER DATA 
+CO_SO2_from_Hampton <- Hampton_PM_all %>% dplyr::select(`Parameter.Name`, `Date..Local.`, `Arithmetic.Mean`) %>% filter(`Parameter.Name` == "Carbon monoxide") %>% mutate( `Parameter.Name` = as.character(`Parameter.Name`), `Date..Local.` = as.Date(`Date..Local.`, "%m/%d/%Y"), `Arithmetic.Mean` = as.numeric(`Arithmetic.Mean`)) %>% pivot_wider(names_from = `Parameter.Name`, values_from = `Arithmetic.Mean`) %>% rename(CO = `Carbon monoxide`, date = `Date..Local.`) ## ENSURE DATES ARE READING IN CORRECTLY TOMORROW FOR ALL WEATHER DATA 
 
 all.EPA.data <- full_join(est_chowan_albemarle_o3, triangulated_EPA_PM, by = "date")
 all.EPA.data <- full_join(all.EPA.data, IMPROVE_network, by = "date")
@@ -770,6 +828,56 @@ combined_water_air_met_epa_S_daily <- full_join(combined_water_air_met_S_wide, a
 combined_water_air_met_epa_M_daily <- full_join(combined_water_air_met_M_wide, all.EPA.data, by = c("date")) %>% filter(date > "2022-05-30")
 combined_water_air_met_epa_L_daily <- full_join(combined_water_air_met_L_wide, all.EPA.data, by = c("date")) %>% filter(date > "2022-05-30")
 
+# Before removing days with known sources of wildfire, fireworks, etc., see if there is a correlation between CO and days with wildfire
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_line(aes(x = date, y = CO * 50, fill = "black")) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./50, name = "EPA Carbon Monoxide")) +
+  labs(x = "Date") +
+  theme_minimal()
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_line(aes(x = date, y = Ozone * 500), color = "red") +
+  # geom_point(aes(x = date, y = SO4 * 10 ),color = "darkgray", shape = 3, size =3) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./500, name = "EPA Ozone")) +
+  labs(x = "Date") +
+  theme_minimal()
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_point(aes(x = date, y = SO4 * 10 ),color = "black", shape = 2, size =2) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./10, name = "EPA SO4")) +
+  labs(x = "Date") +
+  theme_minimal()
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_point(aes(x = date, y = PO4 * 5000 ),color = "black", shape = 3, size =2) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./5000, name = "EPA PO4")) +
+  labs(x = "Date") +
+  theme_minimal()
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_point(aes(x = date, y = Total_NOx * 50 ),color = "black", shape = 4, size =2) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./50, name = "EPA NOx")) +
+  labs(x = "Date") +
+  theme_minimal() +
+  ylim(0,50)
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_line(aes(x = date, y = CO * 50, fill = "black")) +
+  geom_line(aes(x = date, y = Ozone * 500), color = "red") +
+  geom_point(aes(x = date, y = Total_NOx * 50 ), color = "darkgray", shape = 5, size = 1) +
+  geom_point(aes(x = date, y = PO4 * 50000), color = "darkgray", shape = 4, size = 1) +
+  geom_point(aes(x = date, y = SO4 * 50 ), color = "darkgray", shape = 3, size = 1) +
+ # scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./50, name = " EPA")) +
+  labs(x = "Date") +
+  theme_minimal() +
+  ylim(0,50)
+
 # Collapsing into weekly averages for all environmental data
 library(lubridate)
 calc_weekly_avgs <- function(df) {
@@ -779,7 +887,7 @@ calc_weekly_avgs <- function(df) {
   summarise(across(where(is.numeric), mean, na.rm = TRUE),
             across(where(is.character), first),
             across(where(is.Date), first)) %>% 
-  drop_na(week, `pm2.5`, avg_cyano_cell_count) 
+  drop_na(week, `pm2.5_CONUS`, avg_cyano_cell_count) 
   }
 
 combined_water_air_met_epa_S_weekly <- calc_weekly_avgs(combined_water_air_met_epa_S_daily)
@@ -797,7 +905,7 @@ impute_all_columns_single_sensor <- function(data) {
   imputed_data_list <- list()
   
   # Group the data by Name
-  grouped_data <- data %>% group_by(Name)
+  grouped_data <- data #%>% group_by(Name)
   
   # Iterate through each group
   imputed_data <- grouped_data %>%
@@ -857,11 +965,10 @@ impute_all_columns_single_sensor <- function(data) {
   
   return(ungroup(imputed_data))
 }
-unique(combined_water_air_L_wide$Name)
 
 # Usage of Function -- Imputations appear to be consistent between S M and L so not randomized each time which is good 
 # only was able to get this to work for individual sensors to ensure values are based on specific measurements by those sensors
-imputs.1318_S <- combined_water_air_met_epa_S_daily %>% filter(Name == "1318") 
+imputs.1318_S <- combined_water_air_met_epa_S_daily %>% filter(Name == "1318")
 imputs.1318_S <- impute_all_columns_single_sensor(imputs.1318_S)
 imputs.1318_M <- combined_water_air_met_epa_M_daily %>% filter(Name == "1318") 
 imputs.1318_M <- impute_all_columns_single_sensor(imputs.1318_M)
@@ -952,9 +1059,9 @@ imputs.1562_M <- impute_all_columns_single_sensor(imputs.1562_M)
 imputs.1562_L <- combined_water_air_met_epa_L_daily %>% filter(Name == "1562") 
 imputs.1562_L <- impute_all_columns_single_sensor(imputs.1562_L)
 
-combined_water_air_met_epa_S_imputations <- rbind(imputs.1318_S, imputs.1334_S, imputs.1344_S, imputs.1348_S, imputs.1358_S, imputs.1362_S, imputs.1378_S, imputs.1562_S, imputs.1680_S, imputs.1806_S, imputs.5822_S, imputs.5838_S, imputs.9875_S) %>% drop_na(`pm2.5`, avg_cyano_cell_count) 
-combined_water_air_met_epa_M_imputations <- rbind(imputs.1318_M, imputs.1334_M, imputs.1344_M, imputs.1348_M, imputs.1358_M, imputs.1362_M, imputs.1378_M, imputs.1562_M, imputs.1680_M, imputs.1806_M, imputs.5822_M, imputs.5838_M, imputs.9875_M) %>% drop_na(`pm2.5`, avg_cyano_cell_count) 
-combined_water_air_met_epa_L_imputations <- rbind(imputs.1318_L, imputs.1334_L, imputs.1344_L, imputs.1348_L, imputs.1358_L, imputs.1362_L, imputs.1378_L, imputs.1562_L, imputs.1680_L, imputs.1806_L, imputs.5822_L, imputs.5838_L, imputs.9875_L) %>% drop_na(`pm2.5`, avg_cyano_cell_count) 
+combined_water_air_met_epa_S_imputations <- rbind(imputs.1318_S, imputs.1334_S, imputs.1344_S, imputs.1348_S, imputs.1358_S, imputs.1362_S, imputs.1378_S, imputs.1562_S, imputs.1680_S, imputs.1806_S, imputs.5822_S, imputs.5838_S, imputs.9875_S) %>% drop_na(`pm2.5_CONUS`, `pm2.5_SE`, avg_cyano_cell_count) 
+combined_water_air_met_epa_M_imputations <- rbind(imputs.1318_M, imputs.1334_M, imputs.1344_M, imputs.1348_M, imputs.1358_M, imputs.1362_M, imputs.1378_M, imputs.1562_M, imputs.1680_M, imputs.1806_M, imputs.5822_M, imputs.5838_M, imputs.9875_M) %>% drop_na(`pm2.5_CONUS`, `pm2.5_SE`, avg_cyano_cell_count) 
+combined_water_air_met_epa_L_imputations <- rbind(imputs.1318_L, imputs.1334_L, imputs.1344_L, imputs.1348_L, imputs.1358_L, imputs.1362_L, imputs.1378_L, imputs.1562_L, imputs.1680_L, imputs.1806_L, imputs.5822_L, imputs.5838_L, imputs.9875_L) %>% drop_na(`pm2.5_CONUS`, `pm2.5_SE`, avg_cyano_cell_count) 
 
 # Comparing EPA data to purpleair data -------------------------------
 # making dfs for this comparison
@@ -963,23 +1070,47 @@ RH.corr.pm <- full_join(all.EPA.data, compiled_purpleair_data, by = "date") %>% 
 
 # regression and change fill to sensor ID 
 pm.comparison.RH.corr <- ggplot(RH.corr.pm) + 
-  geom_point(aes(y = `EPA_PM2.5`, x = pm2.5, color = Name)) + 
-  geom_smooth(aes(y = `EPA_PM2.5`, x = pm2.5), method='lm')+
+  geom_point(aes(y = `EPA_PM2.5`, x = pm2.5_CONUS, color = Name)) + 
+  geom_smooth(aes(y = `EPA_PM2.5`, x = pm2.5_CONUS), method='lm')+
   xlim(0,40) + 
   ylim(0,40) + 
-  geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed", size = 1) 
+  geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed", size = 1) +
+  labs(title = "CONUS corrected by RH")
   
 pm.comparison.NOT.RH.corr <- ggplot(not.RH.corr.pm) + 
   geom_point(aes(y = `EPA_PM2.5`, x = pm2.5, color = Name)) + 
   geom_smooth(aes(y = `EPA_PM2.5`, x = pm2.5), method='lm')+
   xlim(0,40) + 
   ylim(0,40) + 
-  geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed", size = 1) 
+  geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed", size = 1) +
+  labs(title = "not corrected by RH")
+
+pm.comparison.SE.RH.corr <- ggplot(RH.corr.pm) + 
+  geom_point(aes(y = `EPA_PM2.5`, x = pm2.5_SE, color = Name)) + 
+  geom_smooth(aes(y = `EPA_PM2.5`, x = pm2.5_SE), method='lm')+
+  xlim(0,40) + 
+  ylim(0,40) + 
+  geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed", size = 1) +
+  labs(title = "SE corrected by RH")
 
 library(patchwork);library(purrr)
-pm.comparison.RH.corr + pm.comparison.NOT.RH.corr
+pm.comparison.SE.RH.corr + pm.comparison.RH.corr + pm.comparison.NOT.RH.corr  
 
 # extract the R-squared value -----------------------------------------
+get_model_summary <- function(data) {
+  model <- lm(`EPA_PM2.5` ~ `pm2.5_CONUS`, data = data)
+  summary_model <- summary(model)
+  r_squared <- summary_model$r.squared
+  intercept <- coef(model)[1]
+  slope <- coef(model)[2]
+  equation <- paste0("EPA_PM2.5 = ", round(intercept, 2), " + ", round(slope, 2), " * pm2.5")
+  list(r_squared = r_squared, equation = equation)
+}
+r_squared_values.RH.corr <- RH.corr.pm %>%
+  group_by(Name) %>%
+  summarize(r_squared = get_model_summary(cur_data())$r_squared,
+            equation = get_model_summary(cur_data())$equation)
+
 get_model_summary <- function(data) {
   model <- lm(`EPA_PM2.5` ~ `pm2.5`, data = data)
   summary_model <- summary(model)
@@ -989,12 +1120,21 @@ get_model_summary <- function(data) {
   equation <- paste0("EPA_PM2.5 = ", round(intercept, 2), " + ", round(slope, 2), " * pm2.5")
   list(r_squared = r_squared, equation = equation)
 }
-
-r_squared_values.RH.corr <- RH.corr.pm %>%
+r_squared_values.not.RH.corr <- not.RH.corr.pm %>%
   group_by(Name) %>%
   summarize(r_squared = get_model_summary(cur_data())$r_squared,
             equation = get_model_summary(cur_data())$equation)
-r_squared_values.not.RH.corr <- not.RH.corr.pm %>%
+
+get_model_summary <- function(data) {
+  model <- lm(`EPA_PM2.5` ~ `pm2.5_SE`, data = data)
+  summary_model <- summary(model)
+  r_squared <- summary_model$r.squared
+  intercept <- coef(model)[1]
+  slope <- coef(model)[2]
+  equation <- paste0("EPA_PM2.5 = ", round(intercept, 2), " + ", round(slope, 2), " * pm2.5")
+  list(r_squared = r_squared, equation = equation)
+}
+r_squared_values.SE.RH.corr <- RH.corr.pm %>%
   group_by(Name) %>%
   summarize(r_squared = get_model_summary(cur_data())$r_squared,
             equation = get_model_summary(cur_data())$equation)
@@ -1004,10 +1144,21 @@ r_squared_values.not.RH.corr <- not.RH.corr.pm %>%
 sensor_count <- RH.corr.pm %>% group_by(Name) %>% summarize(count = n()) 
 
 RH.corr.pm.single.point <- RH.corr.pm %>% 
-  dplyr::select(Name, `pm2.5`, `EPA_PM2.5`) %>%
+  dplyr::select(Name, `pm2.5_CONUS`, `EPA_PM2.5`) %>%
   group_by(Name) %>%
-  mutate(mean_EPA = mean(`EPA_PM2.5`), sd_EPA = sd(`EPA_PM2.5`), mean_purp = mean(`pm2.5`), sd_purp = sd(`pm2.5`)) %>%
-  dplyr::select(-`EPA_PM2.5`, -`pm2.5`) %>%
+  mutate(mean_EPA = mean(`EPA_PM2.5`), sd_EPA = sd(`EPA_PM2.5`), mean_purp = mean(`pm2.5_CONUS`), sd_purp = sd(`pm2.5_CONUS`)) %>%
+  dplyr::select(-`EPA_PM2.5`, -`pm2.5_CONUS`) %>%
+  mutate(xmin = (mean_purp-sd_purp), xmax = (mean_purp+sd_purp), ymin = (mean_EPA-sd_EPA), ymax = (mean_EPA+sd_EPA)) %>% 
+  unique() %>% 
+  ungroup() %>% 
+  full_join(sensor_count) %>% 
+  mutate(count = as.numeric(count)) %>% drop_na()
+
+SE.RH.corr.pm.single.point <- RH.corr.pm %>% 
+  dplyr::select(Name, `pm2.5_SE`, `EPA_PM2.5`) %>%
+  group_by(Name) %>%
+  mutate(mean_EPA = mean(`EPA_PM2.5`), sd_EPA = sd(`EPA_PM2.5`), mean_purp = mean(`pm2.5_SE`), sd_purp = sd(`pm2.5_SE`)) %>%
+  dplyr::select(-`EPA_PM2.5`, -`pm2.5_SE`) %>%
   mutate(xmin = (mean_purp-sd_purp), xmax = (mean_purp+sd_purp), ymin = (mean_EPA-sd_EPA), ymax = (mean_EPA+sd_EPA)) %>% 
   unique() %>% 
   ungroup() %>% 
@@ -1034,8 +1185,20 @@ RH.corr.fig <- ggplot(RH.corr.pm.single.point, aes()) +
     scale_size(range = c(2, 8)) + 
     geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed", size = 1) +
     theme_minimal() + 
-    labs(title = "Humidity Corrected PurpleAir PM2.5") + 
+    labs(title = "CONUS Humidity Corrected PurpleAir PM2.5") + 
     theme(legend.position = "none")
+
+SE.RH.corr.fig <- ggplot(SE.RH.corr.pm.single.point, aes()) +
+  geom_errorbar(aes(x = mean_purp, ymin = ymin, ymax = ymax), width = 0.1, color = "gray") +
+  geom_errorbarh(aes(y = mean_EPA, xmin = xmin, xmax = xmax), height = 0.1, color = "gray") +
+  geom_point(aes(x = mean_purp, y = mean_EPA, color = Name, size = count)) +
+  #xlim(0, 12) + 
+  #ylim(0, 12) + 
+  scale_size(range = c(2, 8)) + 
+  geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed", size = 1) +
+  theme_minimal() + 
+  labs(title = "SE Humidity Corrected PurpleAir PM2.5") + 
+  theme(legend.position = "none")
 
 not.RH.corr.fig <- ggplot(not.RH.corr.pm.single.point, aes()) +
   geom_errorbar(aes(x = mean_purp, ymin = ymin, ymax = ymax), width = 0.1, color = "gray") +
@@ -1048,7 +1211,7 @@ not.RH.corr.fig <- ggplot(not.RH.corr.pm.single.point, aes()) +
   theme_minimal() + 
   labs(title = "Non-RH Corrected PurpleAir PM2.5")
 
-RH.corr.fig + not.RH.corr.fig
+SE.RH.corr.fig + RH.corr.fig + not.RH.corr.fig
 
 max(RH.corr.pm$EPA_PM2.5)
 
