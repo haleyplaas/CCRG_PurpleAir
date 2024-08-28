@@ -2,7 +2,7 @@ setwd("C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repo
 rm(list = ls())
 library(httr);library(jsonlite);library(dplyr)
 
-# write for loop to read in TIF files and then extract information I need
+# write for loop to read in TIFF files and then extract information I need
 ## I used this to find the X and Y pixel bounds in UTM so that I could write the code to automatically scrape all of pixel data I needed using python
 #library(raster)
 #str_name <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\SeaDAS files\\CyanoIndices\\L2022157.L3m_DAY_CYAN_CI_cyano_CYAN_CONUS_300m_8_3.tif"
@@ -112,10 +112,12 @@ all_purple_air_data <- lapply(all_purple_air_data, function(df) {
                               df %>% 
                               rename(humidity = temperature.x, temperature = temperature.y)
 })
+df_names <- names(all_purple_air_data)
 
 # Apply correction factors for measurement errors and humidity
 corrected_purple_air_data <- list()
 corrected_purple_air_data.1 <- list()
+
 # For loop to perform the humidity correction factors from the literature
 for (i in seq_along(all_purple_air_data)) {
   data <- all_purple_air_data[[i]]  # Extract the dataframe
@@ -148,44 +150,39 @@ for (i in seq_along(all_purple_air_data)) {
                    !(pm2.5_a <= 25 & pm2.5_b <= 25 & (sensor_dif >= 5 | channel_comp >= 0.2 | channel_comp <= -0.2)) &
                    !(pm2.5_a >= 25 & pm2.5_b >= 25 & (channel_comp >= 0.2 | channel_comp <= -0.2)))
   
-  # Calculate pm2.5_avg_SE and SE.pm2.5
+  # Calculate pm2.5_avg_SE and SE.pm2.5 
  data.1$pm2.5_avg_SE <- (data.1$pm2.5_a + data.1$pm2.5_b) / 2
- data.1$SE.pm2.5 <- 4.3295358 + (0.4182906*data.1$pm2.5_avg_SE) - (0.0445768* data.1$humidity) + (0.0752867*data.1$temperature)
-  
+ # Model 4 only approach 
+ # data.1$SE.pm2.5 <-  4.3295358 + (0.4182906*data.1$pm2.5_avg_SE) - (0.0445768* data.1$humidity) + (0.0752867*data.1$temperature)
+ # Clustered approach to account for high humidity
+ data.1 <- data.1 %>% mutate(SE.pm2.5 = case_when(
+                                       humidity <= 50 ~ 2.738732 + (0.425834*pm2.5_avg_SE) - (0.008944*humidity) + (0.079210*temperature),
+                                       humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
   # Remove duplicate rows
   data <- data[!duplicated(data), ]
   data.1 <- data.1[!duplicated(data.1), ]
   
   # Extract the last 6 characters of the file name
-  truncated_file_name <- substr(basename(file_names[i]), nchar(basename(file_names[i])) - 9, nchar(basename(file_names[i])))
+ # truncated_file_name <- substr(basename(file_names[i]), nchar(basename(file_names[i])) - 9, nchar(basename(file_names[i])))
   
-  corrected_purple_air_data[[i]] <- list(truncated_file_name = truncated_file_name, data = data)
-  corrected_purple_air_data.1[[i]] <- list(truncated_file_name = truncated_file_name, data = data.1)
+  corrected_purple_air_data[df_names[i]] <- list(data = data)
+  corrected_purple_air_data.1[df_names[i]] <- list(data = data.1)
 }
 
-# Merging both correction factor results into one list
-merged_corrected_purple_air_data <- list()
-for (i in seq_along(corrected_purple_air_data)) {
-  data <- corrected_purple_air_data[[i]]$data
-  se_pm25 <- corrected_purple_air_data.1[[i]]$data[, c("time_stamp", "pm2.5_avg_SE", "SE.pm2.5")]  # Extract time_stamp and SE.pm2.5
-  merged_data <- merge(data, se_pm25, by = "time_stamp", all.x = TRUE)
-  merged_corrected_purple_air_data[[i]] <- list(truncated_file_name = corrected_purple_air_data[[i]]$truncated_file_name, data = merged_data)
-}
-
-#renaming each and pulling each sensor out into its own dataframe
-sensor.5822 <- merged_corrected_purple_air_data[[1]]$data
-sensor.5838 <- merged_corrected_purple_air_data[[2]]$data
-sensor.1318 <- merged_corrected_purple_air_data[[3]]$data
-sensor.1334 <- merged_corrected_purple_air_data[[4]]$data
-sensor.1344 <- merged_corrected_purple_air_data[[5]]$data
-sensor.1348 <- merged_corrected_purple_air_data[[6]]$data
-sensor.1358 <- merged_corrected_purple_air_data[[7]]$data
-sensor.1362 <- merged_corrected_purple_air_data[[8]]$data
-sensor.1378 <- merged_corrected_purple_air_data[[9]]$data
-sensor.1562 <- merged_corrected_purple_air_data[[10]]$data
-sensor.1680 <- merged_corrected_purple_air_data[[11]]$data
-sensor.1806 <- merged_corrected_purple_air_data[[12]]$data
-sensor.9875 <- merged_corrected_purple_air_data[[13]]$data
+# Merging different correction factors into single dfs 
+sensor.5822 <- left_join(corrected_purple_air_data[["5822"]], corrected_purple_air_data.1[["5822"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.5838 <- left_join(corrected_purple_air_data[["5838"]], corrected_purple_air_data.1[["5838"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1318 <- left_join(corrected_purple_air_data[["1318"]], corrected_purple_air_data.1[["1318"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1334 <- left_join(corrected_purple_air_data[["1334"]], corrected_purple_air_data.1[["1334"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1344 <- left_join(corrected_purple_air_data[["1344"]], corrected_purple_air_data.1[["1344"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1348 <- left_join(corrected_purple_air_data[["1348"]], corrected_purple_air_data.1[["1348"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1358 <- left_join(corrected_purple_air_data[["1358"]], corrected_purple_air_data.1[["1358"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1362 <- left_join(corrected_purple_air_data[["1362"]], corrected_purple_air_data.1[["1362"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1378 <- left_join(corrected_purple_air_data[["1378"]], corrected_purple_air_data.1[["1378"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1562 <- left_join(corrected_purple_air_data[["1562"]], corrected_purple_air_data.1[["1562"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1680 <- left_join(corrected_purple_air_data[["1680"]], corrected_purple_air_data.1[["1680"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.1806 <- left_join(corrected_purple_air_data[["1806"]], corrected_purple_air_data.1[["1806"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
+sensor.9875 <- left_join(corrected_purple_air_data[["9875"]], corrected_purple_air_data.1[["9875"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
 
 # Filling in missing humidity, temperature values and recalculating 
 # 1318 has missing humidity and temperature values -- as well as values humidity = 100 and temp = -223 for all after 10-22-2022, using RH values from nearest sensor (1344) operating at the time to fill in these NAs 
@@ -261,16 +258,18 @@ library(tidyverse);library(dplyr)
 
 # read in all of the SeaDAS files 
 # Specify the folder path containing your text files
-folder_path <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\SeaDAS files\\Band_1_py"
+# as of 08-27-2024 I updated the CyAN data to be at a higher resolution (smaller areas per Zorbas et al., 2023)
+# as of 08-28-2024 I am compositing images into weekly maximums for each pixel before finding averages 
+#folder_path <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\SeaDAS files\\Band_1_py_2"
 
 # Initialize an empty list to store data frames
-result_list <- list()
+#result_list <- list()
 
 # Iterate over each file in the folder
-files <- list.files(folder_path, pattern = "\\.txt$", full.names = TRUE)
+#files <- list.files(folder_path, pattern = "\\.txt$", full.names = TRUE)
 
 # Loop through each file
-for (file in files) {
+#for (file in files) {
   
   tryCatch({
     # Read the file, skipping lines until line 7
@@ -295,6 +294,85 @@ for (file in files) {
   
 }
 
+# trying to read in only the weekly composites instead of the daily data 
+library(dplyr)
+library(readr)
+library(stringr)
+
+# Define the folder path
+folder_path <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\SeaDAS files\\Band_1_py_2"
+
+# Initialize an empty list to store weekly results
+weekly_result_list <- list()
+
+# List all files in the folder
+files <- list.files(folder_path, pattern = "\\.txt$", full.names = TRUE)
+
+# Extract Julian dates and sort files by Julian date and size indicator
+files_info <- data.frame(
+  file_path = files,
+  julian_date = as.numeric(str_extract(basename(files), "\\d{7}")), # Extract Julian dates
+  size_type = str_extract(basename(files), "_[SML]") # Extract the _S, _M, or _L indicator
+)
+
+# Function to calculate the weekly maximum for 'band_1', considering special values
+calc_weekly_max <- function(band_values) {
+  if (any(band_values == 254)) {
+    return(254)
+  } else if (all(band_values == 255)) {
+    return(255)
+  } else {
+    return(max(band_values[band_values < 254]))
+  }
+}
+
+# Separate files by size type and process each group independently
+size_types <- unique(files_info$size_type)
+
+for (size in size_types) {
+  # Filter files for the current size type
+  size_group <- files_info %>% filter(size_type == size) %>% arrange(julian_date)
+  
+  # Process files in groups of 7 to create weekly composites
+  for (i in seq(1, nrow(size_group), by = 7)) {
+    # Get the group of 7 files
+    file_group <- size_group$file_path[i:min(i + 6, nrow(size_group))]
+    
+    # Initialize a dataframe to store combined data
+    combined_data <- data.frame()
+    
+    # Process each file in the group
+    for (file in file_group) {
+      tryCatch({
+        # Read the file
+        df <- read_delim(file, delim = "\t", col_names = TRUE, skip = 0)
+        
+        # Check if 'Name' column exists in the dataframe
+        if ('Name' %in% colnames(df)) {
+          # Append to combined data
+          combined_data <- bind_rows(combined_data, df)
+        } else {
+          warning(paste("Skipping file", basename(file), "as it does not contain 'Name' column."))
+        }
+      }, error = function(e) {
+        warning(paste("Error reading", basename(file), ":", e$message))
+      })
+    }
+    
+    # Group by all columns except 'band_1' and calculate weekly max for 'band_1'
+    weekly_data <- combined_data %>%
+      group_by(across(-band_1)) %>%
+      summarise(band_1 = calc_weekly_max(band_1), .groups = 'drop') %>%
+      arrange(Name)
+    
+    # Create a name for the weekly composite based on the first and last Julian date in the group
+    week_name <- paste0("Week_", size_group$julian_date[i], "_to_", size_group$julian_date[min(i + 6, nrow(size_group))], size)
+    
+    # Store the weekly data in the list
+    weekly_result_list[[week_name]] <- weekly_data
+  }
+}
+
 # Creating three separate lists for S, M, and L pixel coverages ---------------------------------------------------
 # Create empty lists to store dataframes
 S_list <- list()
@@ -302,13 +380,13 @@ M_list <- list()
 L_list <- list()
 
 # Loop through the list of dataframes and sort them into respective lists
-for (df_name in names(result_list)) {
+for (df_name in names(weekly_result_list)) {
   if (grepl("_S|_S_*", df_name, ignore.case = FALSE)) {
-    S_list[[df_name]] <- result_list[[df_name]]
+    S_list[[df_name]] <- weekly_result_list[[df_name]]
   } else if (grepl("_M|_M_*", df_name, ignore.case = FALSE)) {
-    M_list[[df_name]] <- result_list[[df_name]]
+    M_list[[df_name]] <- weekly_result_list[[df_name]]
   } else if (grepl("_L|_L_*", df_name, ignore.case = FALSE)) {
-    L_list[[df_name]] <- result_list[[df_name]]
+    L_list[[df_name]] <- weekly_result_list[[df_name]]
   }
 }
 
@@ -613,14 +691,9 @@ for (sensor_name in sensor_names) {
 }
 
 compiled_purpleair_data <- bind_rows(purpleair_data) %>% 
-          dplyr::select(Name, time_stamp, CONUS_pm2.5, SE.pm2.5) %>% 
+          dplyr::select(Name, time_stamp, CONUS_pm2.5, SE.pm2.5, pm2.5_avg) %>% 
           rename(date = time_stamp, pm2.5_CONUS = CONUS_pm2.5, pm2.5_SE = SE.pm2.5)  %>%
           mutate(across(-c(date, Name), ~ifelse(. < 0, 0, .))) %>% mutate(date = as.Date(date))
-
-compiled_purpleair_data_NOT_RH_CORR <- bind_rows(purpleair_data) %>% 
-  dplyr::select(Name, time_stamp, pm2.5_avg) %>% 
-  rename(date = time_stamp, pm2.5 = pm2.5_avg)  %>%
-  mutate(across(-c(date, Name), ~ifelse(. < 0, 0, .))) %>% mutate(date = as.Date(date))
 
 # longer for visualizations
 compiled_purpleair_data_longer <- compiled_purpleair_data %>% 
@@ -759,9 +832,15 @@ met.1362 <- `Nixonton` %>% rename(Name = name, date = datetime) %>% mutate(Name 
 met.1362$Name <- "1362" 
 met.1378 <- `Hertford` %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
 met.1378$Name <- "1378" 
+met.1358 <- `Windsor` %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
+met.1358$Name <- "1358"
+met.1562 <- `Murfreesboro` %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
+met.1562$Name <- "1562"
+met.1680 <- `Edenhouse` %>% rename(Name = name, date = datetime) %>% mutate(Name = as.character(Name), date = as.Date(date))
+met.1680$Name <- "1680"
 
 # combining individual met data
-all.met.data <- rbind(met.1334,met.1348,met.5822,met.5838,met.1344,met.9875,met.1318,met.1806,met.1362,met.1378) %>% dplyr::select(Name, date, tempmax, temp, humidity, precip, windgust, windspeed, winddir, sealevelpressure, cloudcover, solarradiation, solarenergy)
+all.met.data <- rbind(met.1334,met.1348,met.5822,met.5838,met.1344,met.9875,met.1318,met.1806,met.1362,met.1378,met.1358,met.1562, met.1680) %>% dplyr::select(Name, date, tempmax, temp, humidity, precip, windgust, windspeed, winddir, sealevelpressure, cloudcover, solarradiation, solarenergy)
 
 # adding met data to air_water_dataframes
 combined_water_air_met_S_wide <- full_join(combined_water_air_S_wide, all.met.data, by = c("Name", "date"))
@@ -828,57 +907,7 @@ combined_water_air_met_epa_S_daily <- full_join(combined_water_air_met_S_wide, a
 combined_water_air_met_epa_M_daily <- full_join(combined_water_air_met_M_wide, all.EPA.data, by = c("date")) %>% filter(date > "2022-05-30")
 combined_water_air_met_epa_L_daily <- full_join(combined_water_air_met_L_wide, all.EPA.data, by = c("date")) %>% filter(date > "2022-05-30")
 
-# Before removing days with known sources of wildfire, fireworks, etc., see if there is a correlation between CO and days with wildfire
-ggplot(combined_water_air_met_epa_S_daily) + 
-  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
-  geom_line(aes(x = date, y = CO * 50, fill = "black")) +
-  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./50, name = "EPA Carbon Monoxide")) +
-  labs(x = "Date") +
-  theme_minimal()
-
-ggplot(combined_water_air_met_epa_S_daily) + 
-  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
-  geom_line(aes(x = date, y = Ozone * 500), color = "red") +
-  # geom_point(aes(x = date, y = SO4 * 10 ),color = "darkgray", shape = 3, size =3) +
-  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./500, name = "EPA Ozone")) +
-  labs(x = "Date") +
-  theme_minimal()
-
-ggplot(combined_water_air_met_epa_S_daily) + 
-  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
-  geom_point(aes(x = date, y = SO4 * 10 ),color = "black", shape = 2, size =2) +
-  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./10, name = "EPA SO4")) +
-  labs(x = "Date") +
-  theme_minimal()
-
-ggplot(combined_water_air_met_epa_S_daily) + 
-  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
-  geom_point(aes(x = date, y = PO4 * 5000 ),color = "black", shape = 3, size =2) +
-  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./5000, name = "EPA PO4")) +
-  labs(x = "Date") +
-  theme_minimal()
-
-ggplot(combined_water_air_met_epa_S_daily) + 
-  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
-  geom_point(aes(x = date, y = Total_NOx * 50 ),color = "black", shape = 4, size =2) +
-  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./50, name = "EPA NOx")) +
-  labs(x = "Date") +
-  theme_minimal() +
-  ylim(0,50)
-
-ggplot(combined_water_air_met_epa_S_daily) + 
-  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
-  geom_line(aes(x = date, y = CO * 50, fill = "black")) +
-  geom_line(aes(x = date, y = Ozone * 500), color = "red") +
-  geom_point(aes(x = date, y = Total_NOx * 50 ), color = "darkgray", shape = 5, size = 1) +
-  geom_point(aes(x = date, y = PO4 * 50000), color = "darkgray", shape = 4, size = 1) +
-  geom_point(aes(x = date, y = SO4 * 50 ), color = "darkgray", shape = 3, size = 1) +
- # scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./50, name = " EPA")) +
-  labs(x = "Date") +
-  theme_minimal() +
-  ylim(0,50)
-
-# Collapsing into weekly averages for all environmental data
+# Collapsing into weekly averages for all environmental data ----------------------------------
 library(lubridate)
 calc_weekly_avgs <- function(df) {
   df %>% 
@@ -894,7 +923,7 @@ combined_water_air_met_epa_S_weekly <- calc_weekly_avgs(combined_water_air_met_e
 combined_water_air_met_epa_M_weekly <- calc_weekly_avgs(combined_water_air_met_epa_M_daily)
 combined_water_air_met_epa_L_weekly <- calc_weekly_avgs(combined_water_air_met_epa_L_daily)
 
-# Generating imputed values 
+# Generating imputed values --------------------------------------------
 library(zoo)
 # this function works if you separate out the specific sensor individually, which is what I ended up doing for my California project
 impute_all_columns_single_sensor <- function(data) {
@@ -1063,10 +1092,134 @@ combined_water_air_met_epa_S_imputations <- rbind(imputs.1318_S, imputs.1334_S, 
 combined_water_air_met_epa_M_imputations <- rbind(imputs.1318_M, imputs.1334_M, imputs.1344_M, imputs.1348_M, imputs.1358_M, imputs.1362_M, imputs.1378_M, imputs.1562_M, imputs.1680_M, imputs.1806_M, imputs.5822_M, imputs.5838_M, imputs.9875_M) %>% drop_na(`pm2.5_CONUS`, `pm2.5_SE`, avg_cyano_cell_count) 
 combined_water_air_met_epa_L_imputations <- rbind(imputs.1318_L, imputs.1334_L, imputs.1344_L, imputs.1348_L, imputs.1358_L, imputs.1362_L, imputs.1378_L, imputs.1562_L, imputs.1680_L, imputs.1806_L, imputs.5822_L, imputs.5838_L, imputs.9875_L) %>% drop_na(`pm2.5_CONUS`, `pm2.5_SE`, avg_cyano_cell_count) 
 
+# combining S, M, and L cyanobacterial coverage spatial areas ---------------------------
+rename.cols.fxn.L <- function(dataframe.name) {
+  dataframe.name <- dataframe.name %>% 
+    rename(avg_cyano_cell_count_L = avg_cyano_cell_count, 
+           median_cyano_cell_count_L = median_cyano_cell_count, 
+           max_cyano_cell_count_L = max_cyano_cell_count,
+           avg_chlorophyll_L = avg_chlorophyll, 
+           median_chlorophyll_L = median_chlorophyll, 
+           max_chlorophyll_L = max_chlorophyll,
+           percent_bloom_L = percent_bloom,
+           surface_area_bloom_L = surface_area_bloom)
+}
+combined_water_air_met_epa_L_daily <- rename.cols.fxn.L(combined_water_air_met_epa_L_daily)
+combined_water_air_met_epa_L_weekly <- rename.cols.fxn.L(combined_water_air_met_epa_L_weekly)
+combined_water_air_met_epa_L_imputations <- rename.cols.fxn.L(combined_water_air_met_epa_L_imputations)
+
+rename.cols.fxn.M <- function(dataframe.name) {
+  dataframe.name <- dataframe.name %>% 
+    rename(avg_cyano_cell_count_M = avg_cyano_cell_count, 
+           median_cyano_cell_count_M = median_cyano_cell_count, 
+           max_cyano_cell_count_M = max_cyano_cell_count,
+           avg_chlorophyll_M = avg_chlorophyll, 
+           median_chlorophyll_M = median_chlorophyll, 
+           max_chlorophyll_M = max_chlorophyll,
+           percent_bloom_M = percent_bloom,
+           surface_area_bloom_M = surface_area_bloom)
+}
+combined_water_air_met_epa_M_daily <- rename.cols.fxn.M(combined_water_air_met_epa_M_daily)
+combined_water_air_met_epa_M_weekly <- rename.cols.fxn.M(combined_water_air_met_epa_M_weekly)
+combined_water_air_met_epa_M_imputations <- rename.cols.fxn.M(combined_water_air_met_epa_M_imputations)
+
+rename.cols.fxn.S <- function(dataframe.name) {
+  dataframe.name <- dataframe.name %>% 
+    rename(avg_cyano_cell_count_S = avg_cyano_cell_count, 
+           median_cyano_cell_count_S = median_cyano_cell_count, 
+           max_cyano_cell_count_S = max_cyano_cell_count,
+           avg_chlorophyll_S = avg_chlorophyll, 
+           median_chlorophyll_S = median_chlorophyll, 
+           max_chlorophyll_S = max_chlorophyll,
+           percent_bloom_S = percent_bloom,
+           surface_area_bloom_S = surface_area_bloom)
+}
+combined_water_air_met_epa_S_daily <- rename.cols.fxn.S(combined_water_air_met_epa_S_daily)
+combined_water_air_met_epa_S_weekly <- rename.cols.fxn.S(combined_water_air_met_epa_S_weekly)
+combined_water_air_met_epa_S_imputations <- rename.cols.fxn.S(combined_water_air_met_epa_S_imputations)
+
+daily_cyano_S_selections <- combined_water_air_met_epa_S_daily %>% 
+  dplyr::select(date, Name, avg_cyano_cell_count_S, median_cyano_cell_count_S, max_cyano_cell_count_S,   avg_chlorophyll_S, median_chlorophyll_S, max_chlorophyll_S, percent_bloom_S, surface_area_bloom_S)
+daily_cyano_M_selections <- combined_water_air_met_epa_M_daily %>% 
+  dplyr::select(date, Name, avg_cyano_cell_count_M, median_cyano_cell_count_M, max_cyano_cell_count_M,   avg_chlorophyll_M, median_chlorophyll_M, max_chlorophyll_M, percent_bloom_M, surface_area_bloom_M)
+combo <- full_join(daily_cyano_S_selections, daily_cyano_M_selections, by = c("date", "Name"))
+COMPLETE.daily.data <- full_join(combined_water_air_met_epa_L_daily, combo, by = c("date", "Name"))
+
+weekly_cyano_S_selections <- combined_water_air_met_epa_S_weekly %>% 
+  dplyr::select(date, Name, avg_cyano_cell_count_S, median_cyano_cell_count_S, max_cyano_cell_count_S,   avg_chlorophyll_S, median_chlorophyll_S, max_chlorophyll_S, percent_bloom_S, surface_area_bloom_S)
+weekly_cyano_M_selections <- combined_water_air_met_epa_M_weekly %>% 
+  dplyr::select(date, Name, avg_cyano_cell_count_M, median_cyano_cell_count_M, max_cyano_cell_count_M,   avg_chlorophyll_M, median_chlorophyll_M, max_chlorophyll_M, percent_bloom_M, surface_area_bloom_M)
+combo <- full_join(weekly_cyano_S_selections, weekly_cyano_M_selections, by = c("date", "Name"))
+COMPLETE.weekly.data <- full_join(combined_water_air_met_epa_L_weekly, combo, by = c("date", "Name"))
+
+imputations_cyano_S_selections <- combined_water_air_met_epa_S_imputations %>% 
+  dplyr::select(date, Name, avg_cyano_cell_count_S, median_cyano_cell_count_S, max_cyano_cell_count_S,   avg_chlorophyll_S, median_chlorophyll_S, max_chlorophyll_S, percent_bloom_S, surface_area_bloom_S)
+imputations_cyano_M_selections <- combined_water_air_met_epa_M_imputations %>% 
+  dplyr::select(date, Name, avg_cyano_cell_count_M, median_cyano_cell_count_M, max_cyano_cell_count_M,   avg_chlorophyll_M, median_chlorophyll_M, max_chlorophyll_M, percent_bloom_M, surface_area_bloom_M)
+combo <- full_join(imputations_cyano_S_selections, imputations_cyano_M_selections, by = c("date", "Name"))
+COMPLETE.imputations.data <- full_join(combined_water_air_met_epa_L_imputations, combo, by = c("date", "Name"))
+
+# Reading out complete cleaned datasets for analyses --------------------
+write.csv(COMPLETE.daily.data, 'C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\COMPLETE.daily.data.csv')
+write.csv(COMPLETE.weekly.data, 'C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\COMPLETE.weekly.data.csv')
+write.csv(COMPLETE.imputations.data, 'C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\COMPLETE.imputations.data.csv')
+
+
+
+# Time Series of PM with air pollutant tracers --------------------------------------------------------
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_line(aes(x = date, y = CO * 50, fill = "black")) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./50, name = "EPA Carbon Monoxide")) +
+  labs(x = "Date") +
+  theme_minimal()
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_line(aes(x = date, y = Ozone * 500), color = "red") +
+  # geom_point(aes(x = date, y = SO4 * 10 ),color = "darkgray", shape = 3, size =3) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./500, name = "EPA Ozone")) +
+  labs(x = "Date") +
+  theme_minimal()
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_point(aes(x = date, y = SO4 * 10 ),color = "black", shape = 2, size =2) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./10, name = "EPA SO4")) +
+  labs(x = "Date") +
+  theme_minimal()
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_point(aes(x = date, y = PO4 * 5000 ),color = "black", shape = 3, size =2) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./5000, name = "EPA PO4")) +
+  labs(x = "Date") +
+  theme_minimal()
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_point(aes(x = date, y = Total_NOx * 50 ),color = "black", shape = 4, size =2) +
+  scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./50, name = "EPA NOx")) +
+  labs(x = "Date") +
+  theme_minimal() +
+  ylim(0,50)
+
+ggplot(combined_water_air_met_epa_S_daily) + 
+  geom_point(aes(x = date, y = pm2.5_CONUS, color = Name)) + 
+  geom_line(aes(x = date, y = CO * 50, fill = "black")) +
+  geom_line(aes(x = date, y = Ozone * 500), color = "red") +
+  geom_point(aes(x = date, y = Total_NOx * 50 ), color = "darkgray", shape = 5, size = 1) +
+  geom_point(aes(x = date, y = PO4 * 50000), color = "darkgray", shape = 4, size = 1) +
+  geom_point(aes(x = date, y = SO4 * 50 ), color = "darkgray", shape = 3, size = 1) +
+  # scale_y_continuous(name = "PM2.5 CONUS", sec.axis = sec_axis(~./50, name = " EPA")) +
+  labs(x = "Date") +
+  theme_minimal() +
+  ylim(0,50)
+
 # Comparing EPA data to purpleair data -------------------------------
 # making dfs for this comparison
 not.RH.corr.pm <- full_join(all.EPA.data, compiled_purpleair_data_NOT_RH_CORR, by = "date") %>% drop_na()
-RH.corr.pm <- full_join(all.EPA.data, compiled_purpleair_data, by = "date") %>% drop_na()
+RH.corr.pm <- full_join(all.EPA.data, compiled_purpleair_data, by = "date") #%>% drop_na(pm2.5_avg)
 
 # regression and change fill to sensor ID 
 pm.comparison.RH.corr <- ggplot(RH.corr.pm) + 
@@ -1095,50 +1248,6 @@ pm.comparison.SE.RH.corr <- ggplot(RH.corr.pm) +
 
 library(patchwork);library(purrr)
 pm.comparison.SE.RH.corr + pm.comparison.RH.corr + pm.comparison.NOT.RH.corr  
-
-# extract the R-squared value -----------------------------------------
-get_model_summary <- function(data) {
-  model <- lm(`EPA_PM2.5` ~ `pm2.5_CONUS`, data = data)
-  summary_model <- summary(model)
-  r_squared <- summary_model$r.squared
-  intercept <- coef(model)[1]
-  slope <- coef(model)[2]
-  equation <- paste0("EPA_PM2.5 = ", round(intercept, 2), " + ", round(slope, 2), " * pm2.5")
-  list(r_squared = r_squared, equation = equation)
-}
-r_squared_values.RH.corr <- RH.corr.pm %>%
-  group_by(Name) %>%
-  summarize(r_squared = get_model_summary(cur_data())$r_squared,
-            equation = get_model_summary(cur_data())$equation)
-
-get_model_summary <- function(data) {
-  model <- lm(`EPA_PM2.5` ~ `pm2.5`, data = data)
-  summary_model <- summary(model)
-  r_squared <- summary_model$r.squared
-  intercept <- coef(model)[1]
-  slope <- coef(model)[2]
-  equation <- paste0("EPA_PM2.5 = ", round(intercept, 2), " + ", round(slope, 2), " * pm2.5")
-  list(r_squared = r_squared, equation = equation)
-}
-r_squared_values.not.RH.corr <- not.RH.corr.pm %>%
-  group_by(Name) %>%
-  summarize(r_squared = get_model_summary(cur_data())$r_squared,
-            equation = get_model_summary(cur_data())$equation)
-
-get_model_summary <- function(data) {
-  model <- lm(`EPA_PM2.5` ~ `pm2.5_SE`, data = data)
-  summary_model <- summary(model)
-  r_squared <- summary_model$r.squared
-  intercept <- coef(model)[1]
-  slope <- coef(model)[2]
-  equation <- paste0("EPA_PM2.5 = ", round(intercept, 2), " + ", round(slope, 2), " * pm2.5")
-  list(r_squared = r_squared, equation = equation)
-}
-r_squared_values.SE.RH.corr <- RH.corr.pm %>%
-  group_by(Name) %>%
-  summarize(r_squared = get_model_summary(cur_data())$r_squared,
-            equation = get_model_summary(cur_data())$equation)
-
 
 # single points for each sensor to see how each is performing --------------------------------------
 sensor_count <- RH.corr.pm %>% group_by(Name) %>% summarize(count = n()) 
@@ -1213,53 +1322,59 @@ not.RH.corr.fig <- ggplot(not.RH.corr.pm.single.point, aes()) +
 
 SE.RH.corr.fig + RH.corr.fig + not.RH.corr.fig
 
-max(RH.corr.pm$EPA_PM2.5)
+# Wind Roses to examine general wind direction for each sensor location --------------------------------------
+install.packages("openair")
+library(openair)
+windRose(combined_water_air_met_epa_S_weekly, ws="windspeed", wd="winddir", ws.int = 3, type= "Name", cols = "heat", paddle = FALSE, 
+         key = list(plot.style = c("ticks", "border"),
+                    fit = "all", height = 0.5,
+                    space = "bottom"))
+windRose(weekly_avg_met, ws="windspeed", wd="winddir", ws.int = 3, type= "site", cols = "heat", paddle = FALSE)
 
 # Simple regression examining PM2.5 as a function of cyano cell counts -----------------------------------------
 # cyano cell counts
 ggplot(combined_water_air_met_epa_S_weekly) +
-  geom_point(aes(x = `pm2.5`, y = `avg_cyano_cell_count`, color = Name)) +
+  geom_point(aes(x = `pm2.5_CONUS`, y = `avg_cyano_cell_count`, color = Name)) +
   ylim(0,20000) + 
   xlim(0,10) +
   facet_wrap(~Name) + 
-  geom_smooth(aes(x = `pm2.5`, y = `avg_cyano_cell_count`, color = Name),  method = "lm", se = TRUE)
+  geom_smooth(aes(x = `pm2.5_CONUS`, y = `avg_cyano_cell_count`, color = Name),  method = "lm", se = TRUE)
 
 ggplot(combined_water_air_met_epa_M_weekly) +
-  geom_point(aes(x = `pm2.5`, y = `avg_cyano_cell_count`, color = Name)) +
+  geom_point(aes(x = `pm2.5_CONUS`, y = `avg_cyano_cell_count`, color = Name)) +
   ylim(0,20000) + 
   xlim(0,10) +
   facet_wrap(~Name) + 
-  geom_smooth(aes(x = `pm2.5`, y = `avg_cyano_cell_count`, color = Name),  method = "lm", se = TRUE)
+  geom_smooth(aes(x = `pm2.5_CONUS`, y = `avg_cyano_cell_count`, color = Name),  method = "lm", se = TRUE)
 
 ggplot(combined_water_air_met_epa_L_weekly) +
-  geom_point(aes(x = `pm2.5`, y = `avg_cyano_cell_count`, color = Name)) +
+  geom_point(aes(x = `pm2.5_CONUS`, y = `avg_cyano_cell_count`, color = Name)) +
   ylim(0,20000) + 
   xlim(0,10) +
   facet_wrap(~Name) + 
-  geom_smooth(aes(x = `pm2.5`, y = `avg_cyano_cell_count`, color = Name),  method = "lm", se = TRUE)
+  geom_smooth(aes(x = `pm2.5_CONUS`, y = `avg_cyano_cell_count`, color = Name),  method = "lm", se = TRUE)
 
 # percent coverage of bloom
 ggplot(combined_water_air_met_epa_S_weekly) +
-  geom_point(aes(x = `pm2.5`, y = `percent_bloom`, color = Name)) +
+  geom_point(aes(x = `pm2.5_CONUS`, y = `percent_bloom`, color = Name)) +
   ylim(0,.05) + 
   xlim(0,10) +
   facet_wrap(~Name) + 
-  geom_smooth(aes(x = `pm2.5`, y = `percent_bloom`, color = Name),  method = "lm", se = TRUE)
+  geom_smooth(aes(x = `pm2.5_CONUS`, y = `percent_bloom`, color = Name),  method = "lm", se = TRUE)
 
 ggplot(combined_water_air_met_epa_M_weekly) +
-  geom_point(aes(x = `pm2.5`, y = `percent_bloom`, color = Name)) +
+  geom_point(aes(x = `pm2.5_CONUS`, y = `percent_bloom`, color = Name)) +
   ylim(0,.05) + 
   xlim(0,10) +
   facet_wrap(~Name) + 
-  geom_smooth(aes(x = `pm2.5`, y = `percent_bloom`, color = Name),  method = "lm", se = TRUE)
+  geom_smooth(aes(x = `pm2.5_CONUS`, y = `percent_bloom`, color = Name),  method = "lm", se = TRUE)
 
 ggplot(combined_water_air_met_epa_L_weekly) +
-  geom_point(aes(x = `pm2.5`, y = `percent_bloom`, color = Name)) +
+  geom_point(aes(x = `pm2.5_CONUS`, y = `percent_bloom`, color = Name)) +
   ylim(0,.05) + 
   xlim(0,10) +
   facet_wrap(~Name) + 
-  geom_smooth(aes(x = `pm2.5`, y = `percent_bloom`, color = Name),  method = "lm", se = TRUE)
-
+  geom_smooth(aes(x = `pm2.5_CONUS`, y = `percent_bloom`, color = Name),  method = "lm", se = TRUE)
 
 # Principal Component analyses --------------------------------------
 library(corrr);library(ggcorrplot);library(factoextra);library(FactoMineR)
