@@ -4,66 +4,21 @@ library(httr);library(jsonlite);library(dplyr);library(ggplot2)
 
 # Read in the data ------------------------------------
 daily_data <- read.csv("C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\COMPLETE.daily.data.csv") %>% select(-X) %>% mutate(Name = as.character(Name), date = as.Date(date))
-weekly_data <- read.csv("C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\COMPLETE.weekly.data.csv") %>% select(-X) %>% mutate(Name = as.character(Name), date = as.Date(date))
 imputed_data <- read.csv("C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\COMPLETE.imputations.data.csv") %>% select(-X) %>% mutate(Name = as.character(Name), date = as.Date(date))
 
-# color palette for sensors, based on regional groupings and also distance from shoreline (darker = further from shore, similar hue = proximate to each other) ---------------------------
-sensor.name.palette <- c("1562" = '#CC6600',
-                         "1334" = '#FFCC00',
-                         "5822" = '#FFFF33',
-                         "1680" = '#99FF66',
-                         "1358" = '#003300',
-                         "5838" = '#006633',
-                         "1348" = '#539f37',
-                         "1378" = '#99FFCC',
-                         "1362" = '#99FFFF',
-                         "9875" = '#99CCFF',
-                         "1318" = '#6699FF',
-                         "1344" = '#0000FF',
-                         "1806" = '#9999FF')
-
-
-df <- data.frame(sensor = factor(names(sensor.name.palette), levels = names(sensor.name.palette)), 
-                 color = sensor.name.palette)
-
-# Plot the color bar
-ggplot(df, aes(x = sensor, y = 1, fill = sensor)) +
-  geom_tile(height = 0.15) +  # Reduce the height of the tiles
-  scale_fill_manual(values = sensor.name.palette) +
-  theme_minimal() +
-  theme(axis.text.y = element_blank(),
-        axis.ticks.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.title.x = element_blank(),
-        panel.grid = element_blank(),
-        axis.text.x = element_text(size = 12, face = "bold"))  +
-  labs(title = "Sensor Color Palette") +
-  coord_fixed(ratio = 10) 
-
-# Create a sequence of colors for the gradient from black to gray
-gradient_colors <- colorRampPalette(c("black", "gray"))(100)
-
-# Create a dataframe with the colors and positions
-df <- data.frame(x = 1:100, 
-                 color = gradient_colors)
-
-# Plot the gradient color bar
-ggplot(df, aes(x = x, y = 1, fill = color)) +
-  geom_tile() +
-  scale_fill_identity() +
-  theme_minimal() +
-  theme(axis.text.y = element_blank(),
-        axis.ticks.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        panel.grid = element_blank()) +
-  labs(title = "Black to Gray Gradient") +
-  coord_fixed(ratio = 10)  # Adjust the ratio to make the bar look better
-
-
-# Adding columns with specifications per stratified analyses --------------------------------
+# Cleaning the dataframes prior to any analyses ---------------------------
 library(lubridate)
+
+# convert daily data to weekly data to avoid sensors dropping otherwise 
+# Group by the start of each week and calculate the weekly averages for numeric columns
+weekly_data <- daily_data %>%
+  mutate(week = floor_date(date, unit = "week")) %>%
+  group_by(Name,week) %>%
+  summarise(
+    across(where(is.numeric), ~ mean(.x, na.rm = TRUE)),  
+    across(where(~ !is.numeric(.x)), ~ first(.x))) %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
 # adding a season column 
 daily_data <- daily_data %>% 
   mutate(season = case_when(
@@ -174,7 +129,7 @@ weekly_data <- weekly_data %>%
   mutate(Hotspot = case_when(
     Name %in% c("5822", "1334") ~ "Arrowhead Beach",
     Name %in% c("1344", "9875", "1318") ~ "Elizabeth City",
-    Name %in% c("1358", "1562") ~ "No Hotspot",
+    Name %in% c("1358", "1562") ~ "Terrestrial Influence",
     Name %in% c("5838", "1348", "1680") ~ "Edenton",
     Name == "1378" ~ "Hertford",
     Name == "1362" ~ "Nixonton",
@@ -192,7 +147,7 @@ weekly_data <- weekly_data %>%
     TRUE ~ NA_character_)) %>%
   mutate(relative_winddir = case_when(
     Name == "5822" & winddir_cardinal %in% c("SW", "W") ~ "onshore",
-    Name == "1344" & winddir_cardinal %in% c("SW", "W") ~ "onshore",
+    Name == "1334" & winddir_cardinal %in% c("SW", "W") ~ "onshore",
     Name == "1680" & winddir_cardinal %in% c("N", "NE", "E", "SE") ~ "onshore",
     Name == "5838" & winddir_cardinal %in% c("SW", "S", "SE", "E") ~ "onshore",
     Name == "1348" & winddir_cardinal %in% c("SW", "S", "SE", "E") ~ "onshore",
@@ -252,7 +207,7 @@ imputed_data <- imputed_data %>%
   mutate(Hotspot = case_when(
     Name %in% c("5822", "1334") ~ "Arrowhead Beach",
     Name %in% c("1344", "9875", "1318") ~ "Elizabeth City",
-    Name %in% c("1358", "1562") ~ "No Hotspot",
+    Name %in% c("1358", "1562") ~ "Terrestrial Influence",
     Name %in% c("5838", "1348", "1680") ~ "Edenton",
     Name == "1378" ~ "Hertford",
     Name == "1362" ~ "Nixonton",
@@ -270,7 +225,7 @@ imputed_data <- imputed_data %>%
     TRUE ~ NA_character_)) %>%
   mutate(relative_winddir = case_when(
     Name == "5822" & winddir_cardinal %in% c("SW", "W") ~ "onshore",
-    Name == "1344" & winddir_cardinal %in% c("SW", "W") ~ "onshore",
+    Name == "1334" & winddir_cardinal %in% c("SW", "W") ~ "onshore",
     Name == "1680" & winddir_cardinal %in% c("N", "NE", "E", "SE") ~ "onshore",
     Name == "5838" & winddir_cardinal %in% c("SW", "S", "SE", "E") ~ "onshore",
     Name == "1348" & winddir_cardinal %in% c("SW", "S", "SE", "E") ~ "onshore",
@@ -297,6 +252,64 @@ imputed_data <- imputed_data %>%
     date >= "2023-07-12" & date <= "2023-07-19" ~ "known_PM_source",
     date >= "2022-08-15" & date <= "2022-08-17" ~ "known_PM_source",
     TRUE ~ "unknown_PM_source" ))
+
+daily_data_cleaned <- daily_data %>% filter(known_PM_days != "known_PM_source")
+weekly_data_cleaned <- weekly_data %>% filter(known_PM_days != "known_PM_source")
+weekly_data_cleaned_cyano <- weekly_data_cleaned %>% filter(cyano_case_relevancy != "not-relevant")
+
+# color palette for sensors ---------------------------
+sensor.name.palette <- c("1562" = '#CC6600',
+                         "1334" = '#FFCC00',
+                         "5822" = '#FFFF33',
+                         "1680" = '#99FF66',
+                         "1358" = '#003300',
+                         "5838" = '#006633',
+                         "1348" = '#539f37',
+                         "1378" = '#99FFCC',
+                         "1362" = '#99FFFF',
+                         "9875" = '#99CCFF',
+                         "1318" = '#6699FF',
+                         "1344" = '#0000FF',
+                         "1806" = '#9999FF')
+
+
+df <- data.frame(sensor = factor(names(sensor.name.palette), levels = names(sensor.name.palette)), 
+                 color = sensor.name.palette)
+
+# Plot the color bar
+ggplot(df, aes(x = sensor, y = 1, fill = sensor)) +
+  geom_tile(height = 0.15) +  # Reduce the height of the tiles
+  scale_fill_manual(values = sensor.name.palette) +
+  theme_minimal() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(size = 12, face = "bold"))  +
+  labs(title = "Sensor Color Palette") +
+  coord_fixed(ratio = 10) 
+
+# Create a sequence of colors for the gradient from black to gray
+gradient_colors <- colorRampPalette(c("black", "gray"))(100)
+
+# Create a dataframe with the colors and positions
+df <- data.frame(x = 1:100, 
+                 color = gradient_colors)
+
+# Plot the gradient color bar
+ggplot(df, aes(x = x, y = 1, fill = color)) +
+  geom_tile() +
+  scale_fill_identity() +
+  theme_minimal() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        panel.grid = element_blank()) +
+  labs(title = "Black to Gray Gradient") +
+  coord_fixed(ratio = 10)  # Adjust the ratio to make the bar look better
 
 # Time Series of PM with air pollutant tracers --------------------------------------------------------
 mean.CO <- mean(daily_data$CO, na.rm = T) # in ppm
@@ -384,11 +397,10 @@ PM.only.timeseries <- ggplot(weekly_data) +
 library(patchwork)
 CO.timeseries / O3.timeseries / NOx.timeseries / PO4.timeseries / SO4.timeseries / PM.only.timeseries
 
-# same plots but with moving averages (based on seasons and Months) 
+# HAP Time series with seasonal averages -------------------------------------  
 library(tidyverse)
 weekly_data$week <- as.Date(weekly_data$week)
 
-# Time series with seasonal averages -------------------------------------
 annual_avgs <- daily_data %>%
   summarise(CO_mean = mean(CO, na.rm = TRUE), # in ppm
             CO_sd = sd(CO, na.rm = TRUE),
@@ -756,7 +768,7 @@ PM.only.timeseries.seasonal <- ggplot(weekly_data) +
 
 CO.timeseries.seasonal / NOx.timeseries.seasonal / O3.timeseries.seasonal / PO4.timeseries.seasonal / SO4.timeseries.seasonal / PM.only.timeseries.seasonal
 
-# Time series with year specific seasonal averages ----------------------------------
+# HAP time series with year specific seasonal averages ----------------------------------
 annual_avgs <- daily_data %>%
   group_by(Year) %>%
   summarise(CO_mean = mean(CO, na.rm = TRUE), # in ppm
@@ -811,7 +823,101 @@ monthly_avgs <- daily_data %>%
             EPA_PM_sd = sd(EPA_PM2.5, na.rm = TRUE)) %>% 
   rename(time_period = month) %>% drop_na(Year)
 
+# Sensitivity Analysis for Correction Factors of PurpleAir data ------------------------
+# join with EPA data 
+EPA_airqual_data <- daily_data %>% select(Name, date, EPA_PM2.5)
+
+# Read in the data 
+daily_data_current_workflow <- read.csv("C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\compiled_purpleair_data_currentwf.csv") %>% select(-X) %>% mutate(Name = as.character(Name), date = as.Date(date)) %>% left_join(EPA_airqual_data, by = c("Name", "date"))
+daily_data_no_cleaning <- read.csv("C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\compiled_purpleair_data_no_removal.csv") %>% select(-X) %>% mutate(Name = as.character(Name), date = as.Date(date)) %>% left_join(EPA_airqual_data, by = c("Name", "date"))
+daily_data_most_stringent <- read.csv("C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\compiled_purpleair_data_most_stringent.csv") %>% select(-X) %>% mutate(Name = as.character(Name), date = as.Date(date)) %>% left_join(EPA_airqual_data, by = c("Name", "date"))
+daily_data_MLR_model4 <- read.csv("C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\compiled_purpleair_data_Model4_MLR.csv") %>% select(-X) %>% mutate(Name = as.character(Name), date = as.Date(date)) %>% left_join(EPA_airqual_data, by = c("Name", "date"))
+
 # Comparing EPA data to purpleair data -------------------------------
+range_summary <- daily_data %>%
+  #group_by(Name) %>%
+  summarize(
+    raw_PM2.5_min = min(pm2.5_avg, na.rm = TRUE),
+    raw_PM2.5_max = max(pm2.5_avg, na.rm = TRUE),
+    frm_PM2.5_min = min(EPA_PM2.5, na.rm = TRUE),
+    frm_PM2.5_max = max(EPA_PM2.5, na.rm = TRUE),
+    CONUS_PM2.5_min = min(pm2.5_CONUS, na.rm = TRUE),
+    CONUS_PM2.5_max = max(pm2.5_CONUS, na.rm = TRUE),
+    SE_PM2.5_min = min(pm2.5_SE, na.rm = TRUE),
+    SE_PM2.5_max = max(pm2.5_SE, na.rm = TRUE))
+
+overall_stats <- daily_data %>%
+  #group_by(Name) %>% 
+  summarize(
+    raw_PM2.5_mean = mean(pm2.5_avg, na.rm = TRUE),
+    raw_PM2.5_sd = sd(pm2.5_avg, na.rm = TRUE),
+    frm_PM2.5_mean = mean(EPA_PM2.5, na.rm = TRUE),
+    frm_PM2.5_sd = sd(EPA_PM2.5, na.rm = TRUE),
+    CONUS_PM2.5_mean = mean(pm2.5_CONUS, na.rm = TRUE),
+    CONUS_PM2.5_sd = sd(pm2.5_CONUS, na.rm = TRUE),
+    SE_PM2.5_mean = mean(pm2.5_SE, na.rm = TRUE),
+    SE_PM2.5_sd = sd(pm2.5_SE, na.rm = TRUE)) 
+
+grouped_stats <- daily_data %>%
+  group_by(Name) %>% 
+  summarize(
+    raw_PM2.5_mean = mean(pm2.5_avg, na.rm = TRUE),
+    raw_PM2.5_sd = sd(pm2.5_avg, na.rm = TRUE),
+    frm_PM2.5_mean = mean(EPA_PM2.5, na.rm = TRUE),
+    frm_PM2.5_sd = sd(EPA_PM2.5, na.rm = TRUE),
+    CONUS_PM2.5_mean = mean(pm2.5_CONUS, na.rm = TRUE),
+    CONUS_PM2.5_sd = sd(pm2.5_CONUS, na.rm = TRUE),
+    SE_PM2.5_mean = mean(pm2.5_SE, na.rm = TRUE),
+    SE_PM2.5_sd = sd(pm2.5_SE, na.rm = TRUE))
+
+grouped_stats_v1 <- daily_data_current_workflow %>%
+  group_by(Name) %>% 
+  summarize(
+    raw_PM2.5_mean = mean(pm2.5_avg, na.rm = TRUE),
+    raw_PM2.5_sd = sd(pm2.5_avg, na.rm = TRUE),
+    frm_PM2.5_mean = mean(EPA_PM2.5, na.rm = TRUE),
+    frm_PM2.5_sd = sd(EPA_PM2.5, na.rm = TRUE),
+    CONUS_PM2.5_mean = mean(pm2.5_CONUS, na.rm = TRUE),
+    CONUS_PM2.5_sd = sd(pm2.5_CONUS, na.rm = TRUE),
+    SE_PM2.5_mean = mean(pm2.5_SE, na.rm = TRUE),
+    SE_PM2.5_sd = sd(pm2.5_SE, na.rm = TRUE))
+
+grouped_stats_v2 <- daily_data_no_cleaning %>%
+  group_by(Name) %>% 
+  summarize(
+    raw_PM2.5_mean = mean(pm2.5_avg, na.rm = TRUE),
+    raw_PM2.5_sd = sd(pm2.5_avg, na.rm = TRUE),
+    frm_PM2.5_mean = mean(EPA_PM2.5, na.rm = TRUE),
+    frm_PM2.5_sd = sd(EPA_PM2.5, na.rm = TRUE),
+    CONUS_PM2.5_mean = mean(pm2.5_CONUS, na.rm = TRUE),
+    CONUS_PM2.5_sd = sd(pm2.5_CONUS, na.rm = TRUE),
+    SE_PM2.5_mean = mean(pm2.5_SE, na.rm = TRUE),
+    SE_PM2.5_sd = sd(pm2.5_SE, na.rm = TRUE))
+
+grouped_stats_v3 <- daily_data_most_stringent %>%
+  group_by(Name) %>% 
+  summarize(
+    raw_PM2.5_mean = mean(pm2.5_avg, na.rm = TRUE),
+    raw_PM2.5_sd = sd(pm2.5_avg, na.rm = TRUE),
+    frm_PM2.5_mean = mean(EPA_PM2.5, na.rm = TRUE),
+    frm_PM2.5_sd = sd(EPA_PM2.5, na.rm = TRUE),
+    CONUS_PM2.5_mean = mean(pm2.5_CONUS, na.rm = TRUE),
+    CONUS_PM2.5_sd = sd(pm2.5_CONUS, na.rm = TRUE),
+    SE_PM2.5_mean = mean(pm2.5_SE, na.rm = TRUE),
+    SE_PM2.5_sd = sd(pm2.5_SE, na.rm = TRUE))
+
+grouped_stats_v4 <- daily_data_MLR_model4 %>%
+  group_by(Name) %>% 
+  summarize(
+    raw_PM2.5_mean = mean(pm2.5_avg, na.rm = TRUE),
+    raw_PM2.5_sd = sd(pm2.5_avg, na.rm = TRUE),
+    frm_PM2.5_mean = mean(EPA_PM2.5, na.rm = TRUE),
+    frm_PM2.5_sd = sd(EPA_PM2.5, na.rm = TRUE),
+    CONUS_PM2.5_mean = mean(pm2.5_CONUS, na.rm = TRUE),
+    CONUS_PM2.5_sd = sd(pm2.5_CONUS, na.rm = TRUE),
+    SE_PM2.5_mean = mean(pm2.5_SE, na.rm = TRUE),
+    SE_PM2.5_sd = sd(pm2.5_SE, na.rm = TRUE))
+
 pm.comparison.RH.corr <- ggplot(daily_data) + 
   geom_point(aes(y = `EPA_PM2.5`, x = pm2.5_CONUS, color = Name)) + 
   geom_smooth(aes(y = `EPA_PM2.5`, x = pm2.5_CONUS), method='lm')+
@@ -840,6 +946,7 @@ library(purrr)
 pm.comparison.SE.RH.corr + pm.comparison.RH.corr + pm.comparison.NOT.RH.corr  
 
 # single point comparison for each sensor 
+# swapping daily_data for daily_data_current_workflow, daily_data_most_stringent, daily_data_no_cleaning, daily_data_MLR_model4
 library(tidyr)
 sensor_count <- daily_data %>% drop_na(`pm2.5_CONUS`) %>% group_by(Name) %>% summarize(count = n())
 
@@ -924,7 +1031,7 @@ not.RH.corr.fig <- ggplot(not.RH.corr.pm.single.point, aes()) +
   theme(axis.title.y = element_blank(), axis.text.y = element_blank()) +
   guides(alpha = "none")
 
-SE.RH.corr.fig + RH.corr.fig + not.RH.corr.fig
+not.RH.corr.fig + RH.corr.fig + SE.RH.corr.fig 
 
 # Wind Roses to examine general wind direction for each sensor location --------------------------------------
 library(openair)
@@ -954,13 +1061,7 @@ ggplot(daily_data_cleaned) +
   geom_smooth(aes(x = `pm2.5_CONUS`, y = `avg_cyano_cell_count_L`, color = Name),  method = "lm", se = TRUE) + 
   scale_color_manual(values = sensor.name.palette) + labs(title = "PM as a function of cyanobacteria, relevant")
 
-# Boxplot examining PM under different groupings ----------------------------
-ggplot(daily_data_cleaned) + 
-  geom_boxplot(aes(x = `relative_winddir`, y = `pm2.5_CONUS`, color = Name)) + 
-  facet_wrap(~Name) + 
-  scale_color_manual(values = sensor.name.palette) +
-  ylim(0,20) + 
-  theme_bw()
+
 
 # Principal Component analyses --------------------------------------
 library(corrr);library(ggcorrplot);library(factoextra);library(FactoMineR)
@@ -976,130 +1077,173 @@ data.pca$loadings[, 1:2]
 fviz_eig(data.pca, addlabels = T)
 fviz_pca_biplot(data.pca, col.var = "cos2", repel = TRUE, labelsize = 5 , pointsize = 2, font.family = "Arial", arrowsize = 1.25)
 
-# GLMs ---------------------------------------------------------------------------
+# GAMs ---------------------------------------------------------------------------
 library(stats)
 library(AICcmodavg)
+library(mgcv)
+library(bbmle) 
+library(gamlss)
+library(gamlss.dist)
 
-daily_data_cleaned <- daily_data %>% filter(known_PM_days != "known_PM_source")
-weekly_data_cleaned <- weekly_data %>% filter(known_PM_days != "known_PM_source")
-  
-model.1 <- glm(pm2.5_CONUS ~ SO4 + PO4 + CO + Total_NOx + Ozone + avg_cyano_cell_count_S + percent_bloom_S, family = gaussian, data = weekly_data_cleaned)
-summary(model.1) 
-model.2 <- glm(pm2.5_CONUS ~ SO4 + PO4 + CO + Total_NOx + Ozone + avg_cyano_cell_count_M + percent_bloom_M, family = gaussian, data = weekly_data_cleaned)
-summary(model.2) 
-model.3 <- glm(pm2.5_CONUS ~ SO4 + PO4 + CO + Total_NOx + Ozone + avg_cyano_cell_count_L + percent_bloom_L, family = gaussian, data = weekly_data_cleaned)
-summary(model.3) 
+# Histograms
+ggplot(weekly_data_cleaned) + geom_histogram(aes(x = avg_cyano_cell_count_S))
+# swapped variable here and found that everything other than cyanobacterial indicators were normally distributed (enough)
+# Model looking at cyanobacterial intensity alone
+ggplot(weekly_data_cleaned) + geom_histogram(aes(avg_cyano_cell_count_S))
 
-# Variables to consider: 
-# SO4 + PO4 + CO + Total_NOx + Ozone + avg_cyano_cell_count_X + percent_bloom_X + windspeed + winddir + solarradiation
+# first order of operations is figuring out how to handle all of the zeroes 
+# need to add a value and then log transform the data with many zeros 
+model.s1 <- gamlss(pm2.5_CONUS ~ avg_cyano_cell_count_S, 
+                family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
+model.m1 <- gamlss(pm2.5_CONUS ~ avg_cyano_cell_count_M, 
+                family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
+model.l1 <- gamlss(pm2.5_CONUS ~ avg_cyano_cell_count_L, 
+                family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
 
-model.s <- glm(pm2.5_CONUS ~ avg_cyano_cell_count_S, family = gaussian, data = weekly_data_cleaned)
-model.m <- glm(pm2.5_CONUS ~ avg_cyano_cell_count_M, family = gaussian, data = weekly_data_cleaned)
-model.l <- glm(pm2.5_CONUS ~ avg_cyano_cell_count_L, family = gaussian, data = weekly_data_cleaned)
+# old normal distribution models 
+#model.s1 <- gam(pm2.5_CONUS ~ s(avg_cyano_cell_count_S), family = gaussian, method = "REML", data = weekly_data_cleaned)
+#model.m1 <- gam(pm2.5_CONUS ~ s(avg_cyano_cell_count_M), family = gaussian, method = "REML", data = weekly_data_cleaned)
+#model.l1 <- gam(pm2.5_CONUS ~ s(avg_cyano_cell_count_L), family = gaussian, method = "REML", data = weekly_data_cleaned)
 
-model.s2 <- glm(pm2.5_CONUS ~ avg_cyano_cell_count_S*percent_bloom_S, family = gaussian, data = weekly_data_cleaned)
-model.m2 <- glm(pm2.5_CONUS ~ avg_cyano_cell_count_M*percent_bloom_M, family = gaussian, data = weekly_data_cleaned)
-model.l2 <- glm(pm2.5_CONUS ~ avg_cyano_cell_count_L*percent_bloom_L, family = gaussian, data = weekly_data_cleaned)
+model.sml4 <- gamlss(pm2.5_CONUS ~ avg_cyano_cell_count_S*avg_cyano_cell_count_M*avg_cyano_cell_count_L, family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
 
-model.s3 <- glm(pm2.5_CONUS ~ percent_bloom_S, family = gaussian, data = weekly_data_cleaned)
-model.m3 <- glm(pm2.5_CONUS ~ percent_bloom_M, family = gaussian, data = weekly_data_cleaned)
-model.l3 <- glm(pm2.5_CONUS ~ percent_bloom_L, family = gaussian, data = weekly_data_cleaned)
-?glm()
-cyano.names <- c('small', "medium", "large")
+AIC(model.s1, model.m1, model.l1, model.sml4)
+BIC(model.s1, model.m1, model.l1, model.sml4)
 
-cyano.models <- list(model.s, model.m, model.l)
-cyano.models2 <- list(model.s2, model.m2, model.l2)
-cyano.models3 <- list(model.s3, model.m3, model.l3)
+# Models looking at cyanobacterial spatial coverage alone
+model.s2 <- gamlss(pm2.5_CONUS ~ surface_area_bloom_S, 
+                   family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
+model.m2 <- gamlss(pm2.5_CONUS ~ surface_area_bloom_M, 
+                   family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
+model.l2 <- gamlss(pm2.5_CONUS ~ surface_area_bloom_L, 
+                   family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
 
-aictab(cand.set = cyano.models, modnames = cyano.names) # cyanobacteria seem to have a bigger impact closer to the source 
-aictab(cand.set = cyano.models2, modnames = cyano.names) 
-aictab(cand.set = cyano.models3, modnames = cyano.names) # similar results for difference between percent coverage and intensity 
+AIC(model.s2, model.m2, model.l2)
+BIC(model.s2, model.m2, model.l2)
 
-model.so4 <- glm(pm2.5_CONUS ~ SO4, family = gaussian, data = weekly_data_cleaned)
-model.po4 <- glm(pm2.5_CONUS ~ PO4, family = gaussian, data = weekly_data_cleaned)
-model.co <- glm(pm2.5_CONUS ~ CO, family = gaussian, data = weekly_data_cleaned)
-model.nox <- glm(pm2.5_CONUS ~ Total_NOx, family = gaussian, data = weekly_data_cleaned)
-model.o3 <- glm(pm2.5_CONUS ~ Ozone, family = gaussian, data = weekly_data_cleaned) 
+#model.s2 <- gam(pm2.5_CONUS ~ s(surface_area_bloom_S), family = gaussian, method = "REML", data = weekly_data_cleaned)
+#model.m2 <- gam(pm2.5_CONUS ~ s(surface_area_bloom_M), family = gaussian, method = "REML", data = weekly_data_cleaned)
+#model.l2 <- gam(pm2.5_CONUS ~ s(surface_area_bloom_L), family = gaussian, method = "REML",data = weekly_data_cleaned)
 
-airpollutant.names <- c('so4', "po4", "co", "nox", "o3")
-airpollutant.models <- list(model.so4, model.po4, model.co, model.nox, model.o3)
+# Examining interaction between cyanobacterial intensity and spatial extent
+model.s3 <- gamlss(pm2.5_CONUS ~ surface_area_bloom_S*avg_cyano_cell_count_S, 
+                   family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
+model.m3 <- gamlss(pm2.5_CONUS ~ surface_area_bloom_M*avg_cyano_cell_count_M, 
+                   family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
+model.l3 <- gamlss(pm2.5_CONUS ~ surface_area_bloom_L*avg_cyano_cell_count_L, 
+                   family = ZAGA,  method = RS(), data = na.omit(weekly_data_cleaned))
 
-aictab(cand.set = airpollutant.models, modnames = airpollutant.names) # if you do this with the cleaned vs uncleaned data (removal of big wildfire days), the results are virtually the same. Bit better fit when cleaned
+AIC(model.s3, model.m3, model.l3)
+BIC(model.s3, model.m3, model.l3)
 
-model.1 <- glm(pm2.5_CONUS ~ Ozone + SO4, family = gaussian, data = weekly_data_cleaned)
-model.2 <- glm(pm2.5_CONUS ~ Ozone + PO4, family = gaussian, data = weekly_data_cleaned)
-model.3 <- glm(pm2.5_CONUS ~ Ozone*Total_NOx, family = gaussian, data = weekly_data_cleaned)
-model.4 <- glm(pm2.5_CONUS ~ Ozone + CO, family = gaussian, data = weekly_data_cleaned)
+weekly_data_cleaned_no_na <- weekly_data_cleaned %>% drop_na()
+weekly_data_cleaned_no_na$ZI_predicted_cyano <- fitted(model.l1)
 
-airpollutant.names.mixed <- c('o3+so4', "o3+po4", "o3+co", "o3*nox", "o3")
-airpollutant.models.mixed <- list(model.1, model.2, model.3, model.4, model.o3)
+# Individual air pollutant models 
+model.so4 <- gam(pm2.5_CONUS ~ s(SO4), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.po4 <- gam(pm2.5_CONUS ~ s(PO4), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.co <- gam(pm2.5_CONUS ~ s(CO), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.nox <- gam(pm2.5_CONUS ~ s(Total_NOx), family = gaussian,method = "REML", data = weekly_data_cleaned)
+model.o3 <- gam(pm2.5_CONUS ~ s(Ozone), family = gaussian, method = "REML", data = weekly_data_cleaned) 
 
-aictab(cand.set = airpollutant.models.mixed, modnames = airpollutant.names.mixed)
+AIC(model.so4, model.po4, model.co, model.nox, model.o3) 
+BIC(model.so4, model.po4, model.co, model.nox, model.o3)# if you do this with the cleaned vs uncleaned data (removal of big wildfire days), the results are virtually the same. Bit better fit when cleaned
+gam.check(model.so4)
+# ozone has the strongest relationship with PM, however, this model is not a good fit 
 
-model.5 <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + SO4, family = gaussian, data = weekly_data_cleaned)
-model.6 <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + PO4, family = gaussian, data = weekly_data_cleaned)
-model.7 <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + CO, family = gaussian, data = weekly_data_cleaned)
-model.8 <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + SO4 + PO4, family = gaussian, data = weekly_data_cleaned)
-model.9 <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + PO4 + CO, family = gaussian, data = weekly_data_cleaned)
-model.10 <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + SO4 + PO4 + CO, family = gaussian, data = weekly_data_cleaned)
-model.11 <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + SO4 + PO4 + CO + avg_cyano_cell_count_S, family = gaussian, data = weekly_data_cleaned)
-model.12 <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + SO4 + PO4 + CO + avg_cyano_cell_count_S*percent_bloom_S, family = gaussian, data = weekly_data_cleaned)
+# Examining additive effects of key pollutants to identify interactions
+model.frm.1 <- gam(pm2.5_CONUS ~ s(Ozone) + s(SO4), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.frm.2 <- gam(pm2.5_CONUS ~ s(Ozone) + s(PO4), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.frm.3 <- gam(pm2.5_CONUS ~ te(Ozone, Total_NOx), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.frm.3b <- gam(pm2.5_CONUS ~ s(Ozone) + s(Total_NOx), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.frm.4 <- gam(pm2.5_CONUS ~ s(Ozone) + s(CO), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.frm.5 <- gam(pm2.5_CONUS ~ s(Ozone) + te(SO4, CO), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.frm.5b <- gam(pm2.5_CONUS ~ s(Ozone) + s(SO4) + s(CO), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.frm.6 <- gam(pm2.5_CONUS ~ te(Ozone, Total_NOx) + s(SO4) + s(CO), family = gaussian, method = "REML", data = weekly_data_cleaned)
 
-airpollutant.names.mixed <- c("o3*nox+so4", "o3*nox+po4", "o3*nox+co", 'o3*nox+so4+po4', "o3*nox+po4+co", "o3*nox+so4+po4+co", "all+cyano", "cyano_w_%")
-airpollutant.models.mixed <- list(model.5, model.6, model.7, model.8, model.9, model.10, model.11, model.12) # adding in cyanobacteria does make a difference in the fit of the model, but considering percent coverage doesnt matter as much (percent coverage and cell count are too dependent and essentially tell the same story)
+AIC(model.frm.1, model.frm.2, model.frm.3, model.frm.3b, model.frm.4, model.frm.5, model.frm.5b, model.frm.6) 
+BIC(model.frm.1, model.frm.2, model.frm.3, model.frm.3b, model.frm.4, model.frm.5, model.frm.5b, model.frm.6) 
+gam.check(model.frm.5b) # okay now we are starting to enter into a realm where the model is actually fitting a bit better (although not perfectly) -- the best fit for the pollutant data demonstrated that ozone when considered with the interactive effects between SO2 and CO is best fit (not the interactions between NOx and Ozone, surprisingly)
 
-aictab(cand.set = airpollutant.models.mixed, modnames = airpollutant.names.mixed)
+# Testing models with all of the pollutants together
+model.frm.7 <- gam(pm2.5_CONUS ~ s(Ozone) + te(SO4, CO) + s(Total_NOx), family = gaussian, method = "REML", data = weekly_data_cleaned)
+model.frm.8 <- gam(pm2.5_CONUS ~ s(Ozone) + te(SO4, CO) + s(Total_NOx) + s(PO4), family = gaussian, method = "REML", data = weekly_data_cleaned)
 
-ws.mod <- glm(pm2.5_CONUS ~ windspeed, family = gaussian, data = weekly_data_cleaned)
-wd.mod <- glm(pm2.5_CONUS ~ winddir, family = gaussian, data = weekly_data_cleaned)
-sun.mod <- glm(pm2.5_CONUS ~ solarradiation, family = gaussian, data = weekly_data_cleaned)
-temp.mod <- glm(pm2.5_CONUS ~ temp, family = gaussian, data = weekly_data_cleaned)
-rh.mod <- glm(pm2.5_CONUS ~ humidity, family = gaussian, data = weekly_data_cleaned)
-# dist.mod <- glm(pm2.5_CONUS ~ water.proximity, family = binomial, data = weekly_data_cleaned) 
-# card.wind.mod <- glm(pm2.5_CONUS ~ relative.winddir, family = binomial, data = weekly_data_cleaned)
+AIC(model.frm.5, model.frm.7, model.frm.8) 
+BIC(model.frm.5, model.frm.7, model.frm.8) 
+gam.check(model.frm.8) # getting a better fit still with these models, but not too much more explained with the inclusion of NOx and PO4 -- especially PO4 which edf, K, and low p value bad sign -- versions 5 or 7 are likely fine, BIC actually prefers version 5
+summary(model.frm.8)
 
-met.names <- c("ws", "wd", "sun", 'temp', "rh")
-met.models <- list(ws.mod, wd.mod, sun.mod, temp.mod, rh.mod)
+# Meteorological data models
+ws.mod <- gam(pm2.5_CONUS ~ s(windspeed), family = gaussian, method = "REML", data = weekly_data_cleaned)
+wd.mod <- gam(pm2.5_CONUS ~ s(winddir), family = gaussian, method = "REML", data = weekly_data_cleaned)
+sun.mod <- gam(pm2.5_CONUS ~ s(solarradiation), family = gaussian, method = "REML", data = weekly_data_cleaned)
+temp.mod <- gam(pm2.5_CONUS ~ s(temp), family = gaussian,method = "REML", data = weekly_data_cleaned)
+rh.mod <- gam(pm2.5_CONUS ~ s(humidity), family = gaussian, method = "REML", data = weekly_data_cleaned)
 
-aictab(cand.set = met.models, modnames = met.names)
+AIC(ws.mod, wd.mod, sun.mod, temp.mod, rh.mod)
+BIC(ws.mod, wd.mod, sun.mod, temp.mod, rh.mod)
+gam.check(temp.mod) # not a good fit for this alone, as suspected
 
-met.mod1 <- glm(pm2.5_CONUS ~ temp*humidity, family = gaussian, data = weekly_data_cleaned)
-met.mod2 <- glm(pm2.5_CONUS ~ temp*humidity + windspeed, family = gaussian, data = weekly_data_cleaned)
-met.mod3 <- glm(pm2.5_CONUS ~ solarradiation + windspeed, family = gaussian, data = weekly_data_cleaned)
-met.mod4 <- glm(pm2.5_CONUS ~ temp*humidity + windspeed + solarradiation, family = gaussian, data = weekly_data_cleaned)
-met.mod5 <- glm(pm2.5_CONUS ~ temp*humidity + windspeed + solarradiation + winddir, family = gaussian, data = weekly_data_cleaned)
+# Examining suspected (known) interactions between weather variables before moving on 
+met.mod1 <- gam(pm2.5_CONUS ~ te(temp, humidity), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod1b <- gam(pm2.5_CONUS ~ s(temp) + s(humidity), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod2 <- gam(pm2.5_CONUS ~ te(solarradiation, temp), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod2b <- gam(pm2.5_CONUS ~ s(solarradiation) + s(temp), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod3 <- gam(pm2.5_CONUS ~ te(winddir, windspeed), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod3b <- gam(pm2.5_CONUS ~ s(winddir) + s(windspeed), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod1c <- gam(pm2.5_CONUS ~ te(humidity, solarradiation, temp), family = gaussian, method = "REML", data = weekly_data_cleaned)
 
-met.names <- c("sun", 'temp', "temp+sun", "temp+ws", "sun+ws", "sun+temp+ws", "all")
-met.models <- list(sun.mod, temp.mod, met.mod1, met.mod2, met.mod3, met.mod4, met.mod5)
+AIC(met.mod1, met.mod1b, met.mod2, met.mod2b, met.mod3, met.mod3b, met.mod1c)
+BIC(met.mod1, met.mod1b, met.mod2, met.mod2b, met.mod3, met.mod3b, met.mod1c)
+gam.check(met.mod2)# not a great fit here either, do not consider any as interactive
 
-aictab(cand.set = met.models, modnames = met.names) # best fit is temp*humidity + ws -- all and sun+temp+ws is pretty similar but more effective if you leaved out sunlight and winddir
+met.mod4 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod5 <- gam(pm2.5_CONUS ~ s(humidity) + te(temp, solarradiation), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod6 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity) + s(winddir), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod7 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity) + s(windspeed), family = gaussian, method = "REML", data = weekly_data_cleaned)
+met.mod8 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity) + s(winddir) + s(windspeed), family = gaussian, method = "REML", data = weekly_data_cleaned)
 
-model.a <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + SO4 + PO4 + CO + avg_cyano_cell_count_S, family = gaussian, data = weekly_data_cleaned)
-model.b <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + SO4 + PO4 + CO + avg_cyano_cell_count_S + temp*humidity + windspeed, family = gaussian, data = weekly_data_cleaned)
-model.c <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + SO4 + PO4 + CO + temp*humidity + windspeed, family = gaussian, data = weekly_data_cleaned)
-model.d <- glm(pm2.5_CONUS ~ Ozone*Total_NOx + SO4 + PO4 + CO + avg_cyano_cell_count_L*percent_bloom_L + temp*humidity + windspeed, family = gaussian, data = weekly_data_cleaned)
+AIC(met.mod1, met.mod2, met.mod4, met.mod5, met.mod6, met.mod7, met.mod8)
+BIC(met.mod1, met.mod2, met.mod4, met.mod5, met.mod6, met.mod7, met.mod8)
+gam.check(met.mod7) # better fit than met mod.2, but still not a great fit model. solar radiation and temperature, indicative of secondary aerosol formation. Wind direction is also very important 
+summary(met.mod8)
 
-mods.names <- c("without", 'with_met', "withuot_cyano")
-models <- list(model.a, model.b, model.c)
+# now adding together met data, air pollution data, and cyanobacteria data into a single model
+# best met model: met.mod5 s(solarradiation) + s(temp) + s(windspeed)
+# best cyano model: model.s3 te(avg_cyano_cell_count_S, surface_area_bloom_S)
+# best frm pollutant model: model.frm.5 s(Ozone) + te(SO4, CO)
 
-aictab(cand.set = models, modnames = mods.names) # best fit is temp*humidity + ws -- all and sun+temp+ws is pretty similar but more effective if you leaved out sunlight and winddir
-summary(model.b)
+#all.mod1 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity) + s(windspeed) + s(avg_cyano_cell_count_S), family = gaussian, method = "REML", data = weekly_data_cleaned)
+#all.mod2 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity) + s(windspeed) + s(Ozone) + te(SO4, CO) + s(Total_NOx), family = gaussian, method = "REML", data = weekly_data_cleaned)
+#all.mod3 <- gam(pm2.5_CONUS ~ s(Ozone) + te(SO4, CO) + s(Total_NOx) + s(PO4) + s(avg_cyano_cell_count_S), family = gaussian, method = "REML", data = weekly_data_cleaned)
+#all.mod4 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity) + s(windspeed) + s(avg_cyano_cell_count_S) + s(Ozone) + te(SO4, CO) + s(Total_NOx) + s(PO4), family = gaussian, method = "REML", data = weekly_data_cleaned)
+#all.mod5 <- gam(pm2.5_CONUS ~ Name + s(solarradiation) + te(temp, humidity) + te(windspeed, avg_cyano_cell_count_S) + s(Ozone) + te(SO4, CO) + s(Total_NOx) + s(PO4), family = gaussian, method = "REML", data = weekly_data_cleaned)
 
-residuals <- rstandard(model.11, type = 'deviance')
-length(residuals)
-x_values <- seq_along(residuals)
+all.mod1 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity) + s(windspeed) + s(ZI_predicted_cyano), family = gaussian, method = "REML", data = weekly_data_cleaned_no_na)
 
-# Plot using scatter.smooth
-scatter.smooth(x_values, residuals, col = 'gray')
+all.mod2 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity) + s(windspeed) + s(Ozone) + te(SO4, CO, k=10) + s(PO4) + s(Total_NOx), family = gaussian, method = "REML", data = weekly_data_cleaned_no_na)
 
-# Final list of important models to show 
-# 
+all.mod3 <- gam(pm2.5_CONUS ~ s(Ozone) + te(SO4, CO, k=10) + s(ZI_predicted_cyano) + s(PO4) + s(Total_NOx), family = gaussian, method = "REML", data = weekly_data_cleaned_no_na)
 
-# Progression of models to show 
-  
+all.mod4 <- gam(pm2.5_CONUS ~ s(solarradiation) + te(temp, humidity) + s(windspeed) + s(ZI_predicted_cyano) + s(Ozone) + te(SO4, CO, k=10) + s(PO4) + s(Total_NOx), family = gaussian, method = "REML", data = weekly_data_cleaned_no_na)
 
+all.mod5 <- gam(pm2.5_CONUS ~ Name + s(solarradiation) + te(temp, humidity) + te(windspeed, ZI_predicted_cyano) + s(Ozone) + te(SO4, CO, k=10) + s(PO4) + s(Total_NOx), family = gaussian, method = "REML", data = weekly_data_cleaned_no_na)
 
-# Playing around with plots ------------------------------------------------------------------
+all.mod6 <- gam(pm2.5_CONUS ~ Name + s(solarradiation) + te(temp, humidity) + te(Ozone, ZI_predicted_cyano)  + te(SO4, CO, k=10) + s(PO4) + s(Total_NOx), family = gaussian, method = "REML", data = weekly_data_cleaned_no_na)
+
+AIC(all.mod1, all.mod2, all.mod3, all.mod4, all.mod5, all.mod6)
+BIC(all.mod1, all.mod2, all.mod3, all.mod4, all.mod5, all.mod6)
+gam.check(all.mod5)
+summary(all.mod5)
+
+# Checking parametric vs non parametric 
+all.mod4.gam <- gam(pm2.5_CONUS ~ s(solarradiation) + s(temp) + s(windspeed) + te(avg_cyano_cell_count_S, surface_area_bloom_S) + s(Ozone) + te(SO4, CO), family = gaussian, method = "REML", data = weekly_data_cleaned)
+all.mod4.glm <- glm(pm2.5_CONUS ~ solarradiation + temp + windspeed + avg_cyano_cell_count_S*surface_area_bloom_S + Ozone + SO4* CO, family = gaussian, data = weekly_data_cleaned)
+AIC(all.mod4.gam, all.mod4.glm)
+BIC(all.mod4.gam, all.mod4.glm) #both BIC and AIC are much lower for the GAM when compared to the GLM, and the residuals plot revealed some curvature for higher values, indicating non-linearity... might need to revisit previous statistical testing and use nonparametric tests
+
+# PM BOXPLOTS ------------------------------------------------------------------
 # color palettes and other theme specifications
 location.color.palette <- c("1318" = "deepskyblue",
                             "3_1318" = "deepskyblue",
@@ -1121,45 +1265,20 @@ location.color.palette <- c("1318" = "deepskyblue",
                             "9875" = "blue",
                             "3_9875" = "blue")
 
-proximity.color.palette <- c("<1km" = "deepskyblue",
-                             ">1km"= "cadetblue2",
-                             "<.5km" = "blue",
+proximity.color.palette <- c("<.5km"= "gray85",
+                             ">.5km" = "darkgray",
                              "control" = "black")
 
-# selecting data of interest
-pm2.5df <- combined_water_air_L_long %>% 
-  filter(variable == "pm2.5") %>% #selecting variable of interest for plot
-  filter(#date > "2023-01-01" & 
-    date <= "2023-06-01" | 
-      date >= "2023-06-14") %>% 
-  na.omit()
-
-pm2.5df.2023 <- combined_water_air_L_long %>% 
-  filter(variable == "pm2.5") %>% #selecting variable of interest for plot
-  filter(date > "2023-01-01" & 
-           date <= "2023-06-01" | 
-           date >= "2023-06-14") %>% 
-  na.omit()
-
-pm2.5df.2022 <- combined_water_air_L_long %>% 
-  filter(variable == "pm2.5") %>% #selecting variable of interest for plot
-  filter(date < "2023-01-01" & 
-           date <= "2023-06-01" | 
-           date >= "2023-06-14") %>% 
-  na.omit()
-
-# Compiled years ----------------------------------------------------------------------------
-pm2.5df.ordered <- pm2.5df %>% mutate(Name = recode(Name,
-                                                    "5822" = "1_5822",
-                                                    "1334" = "1_1334",
-                                                    "1348" = "2_1348", 
-                                                    "5838" = "2_5838",
-                                                    "1344" = "3_1344",
-                                                    "9875" = "3_9875",
-                                                    "1318" = "3_1318"))
-# stats test to go with boxplot data
+# Boxplot examining PM under different groupings ----------------------------
+# Years looped together
 library(multcompView)
-anova.PM2.5.sensor <- aov(value ~ Name, data = pm2.5df.ordered)
+weekly_data_1 <- weekly_data_cleaned %>% drop_na(pm2.5_CONUS) %>%
+mutate(water.proximity = recode(water.proximity, 
+                                ">1km" = ">0.5km", 
+                                "<1km" = ">0.5km")) 
+
+
+anova.PM2.5.sensor <- aov(pm2.5_CONUS ~ Name, data = weekly_data_1)
 summary(anova.PM2.5.sensor)
 
 tukey.sensor <- TukeyHSD(anova.PM2.5.sensor)
@@ -1168,22 +1287,23 @@ print(tukey.sensor)
 cld.sensor <- multcompLetters4(anova.PM2.5.sensor, tukey.sensor)
 print(cld.sensor)
 
-tk.sensor <- group_by(pm2.5df.ordered, Name) %>% 
-  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+tk.sensor <- group_by(weekly_data_1, Name) %>% 
+  summarise(mean = mean(pm2.5_CONUS), quant = quantile(pm2.5_CONUS, probs = 0.75)) %>% 
   arrange(desc(mean))
-cld.sensor <- as.data.frame.list(cld.sensor$Name)
+cld.sensor <- as.data.frame.list(cld.sensor$Name) 
 
+weekly_data_1$Name <- factor(weekly_data_1$Name , levels = c("1562", "5822", "1334", "1680", "1358", "5838", "1348", "1378", "1362", "9875", "1318", "1344", "1806"))
+#weekly_data_1$Name <- factor(weekly_data_1$Name , levels = c("1806", "1680", "1378", "5822", "1334", "1362", "1348", "5838", "9875", "1318", "1344", "1358", "1562"))
 
-
-# plots 
-ggplot(pm2.5df.ordered, aes(x = Name, y = value, fill = Name)) +
-  geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.1) + 
-  geom_boxplot(alpha = 0.5) +
+# Boxplot showing PM averages for each sensor 
+ggplot(weekly_data_1, aes(x = Name, y = pm2.5_CONUS, fill = Name)) +
+  geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.3) + 
+  geom_boxplot(alpha = 0.9) +
   labs(x = "Sensor ID") +
   ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
   ggtitle("PM2.5 Mass Grouped by Sensor") +
-  scale_fill_manual(values = location.color.palette) +
-  scale_color_manual(values = location.color.palette) +
+  scale_fill_manual(values = sensor.name.palette) +
+  scale_color_manual(values = sensor.name.palette) +
   theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
         axis.text.y = element_text(size=15, face="bold", color = "black"),
         axis.title.x = element_text(size=15, face="bold", color = "black"),  
@@ -1195,8 +1315,8 @@ ggplot(pm2.5df.ordered, aes(x = Name, y = value, fill = Name)) +
   ylim(0,20) +
   geom_text(data = tk.sensor, aes(x = Name, y = quant, label = cld.sensor$Letters), size = 6, vjust=-1, hjust = -0.2 ,face = "bold")
 
-# grouped by water proximity
-anova.PM2.5.prox <- aov(value ~ water.proximity, data = pm2.5df)
+# Boxplots grouped by water proximity
+anova.PM2.5.prox <- aov(pm2.5_CONUS ~ water.proximity, data = weekly_data_1)
 summary(anova.PM2.5.prox)
 
 tukey.prox <- TukeyHSD(anova.PM2.5.prox)
@@ -1205,15 +1325,15 @@ print(tukey.prox)
 cld.prox <- multcompLetters4(anova.PM2.5.prox, tukey.prox)
 print(cld.prox)
 
-tk.prox <- group_by(pm2.5df, water.proximity) %>% 
-  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+tk.prox <- group_by(weekly_data_1, water.proximity) %>% 
+  summarise(mean = mean(pm2.5_CONUS), quant = quantile(pm2.5_CONUS, probs = 0.75)) %>% 
   arrange(desc(mean))
 cld.prox <- as.data.frame.list(cld.prox$water.proximity)
 
 # plots 
-ggplot(pm2.5df, aes(x = water.proximity, y = value, fill = water.proximity)) +
+ggplot(weekly_data_1, aes(x = water.proximity, y = pm2.5_CONUS, fill = water.proximity)) +
   #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
-  geom_boxplot(alpha = 0.5) +
+  geom_boxplot(alpha = 0.7) +
   labs(x = "Proximity to Waterfront") +
   ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
   ggtitle("Annual PM2.5 Mass May-August 2022 and 2023") +
@@ -1230,65 +1350,32 @@ ggplot(pm2.5df, aes(x = water.proximity, y = value, fill = water.proximity)) +
   ylim(0,20) +
   geom_text(data = tk.prox, aes(x = water.proximity, y = quant, label = cld.prox$Letters), size = 5, vjust=-1, hjust = -0.2)
 
-# 2022 DATA ONLY --------------------------------------------------------------------------------
-# stats test to go with boxplot data
-library(multcompView)
-anova.PM2.5.sensor.22 <- aov(value ~ Name, data = pm2.5df.2022)
-summary(anova.PM2.5.sensor.22)
+# Fall only analyses
+weekly_data_fall <- weekly_data_cleaned %>% drop_na(pm2.5_CONUS) %>%
+  mutate(water.proximity = recode(water.proximity, 
+                                  ">1km" = ">0.5km", 
+                                  "<1km" = ">0.5km"))  %>%  
+  filter(grepl("-09-|-10-|-11-", week))
+anova.PM2.5.prox <- aov(pm2.5_CONUS ~ water.proximity, data = weekly_data_fall)
+summary(anova.PM2.5.prox)
 
-tukey.sensor.22 <- TukeyHSD(anova.PM2.5.sensor.22)
-print(tukey.sensor.22)
+tukey.prox <- TukeyHSD(anova.PM2.5.prox)
+print(tukey.prox)
 
-cld.sensor.22 <- multcompLetters4(anova.PM2.5.sensor.22, tukey.sensor.22)
-print(cld.sensor.22)
+cld.prox <- multcompLetters4(anova.PM2.5.prox, tukey.prox)
+print(cld.prox)
 
-tk.sensor.22 <- group_by(pm2.5df.2022, Name) %>% 
-  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+tk.prox <- group_by(weekly_data_fall, water.proximity) %>% 
+  summarise(mean = mean(pm2.5_CONUS), quant = quantile(pm2.5_CONUS, probs = 0.75)) %>% 
   arrange(desc(mean))
-cld.sensor.22 <- as.data.frame.list(cld.sensor.22$Name)
+cld.prox <- as.data.frame.list(cld.prox$water.proximity)
 
-# plots 
-ggplot(pm2.5df.2022, aes(x = Name, y = value, fill = Name)) +
+fall <- ggplot(weekly_data_fall, aes(x = water.proximity, y = pm2.5_CONUS, fill = water.proximity)) +
   #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
-  geom_boxplot(alpha = 0.5) +
-  labs(x = "Sensor ID") +
-  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
-  ggtitle("PM2.5 Mass May-August 2023") +
-  scale_fill_manual(values = location.color.palette) +
-  scale_color_manual(values = location.color.palette) +
-  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
-        axis.text.y = element_text(size=15, face="bold", color = "black"),
-        axis.title.x = element_text(size=15, face="bold", color = "black"),  
-        axis.title.y = element_text(size=15, face="bold", color = "black"),
-        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
-        panel.background = element_rect(fill = "white"),
-        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
-        panel.grid.major.x = element_blank()) +
-  ylim(0,20) +
-  geom_text(data = tk.sensor.22, aes(x = Name, y = quant, label = cld.sensor.22$Letters), size = 3, vjust=-1, hjust = -0.2)
-
-# grouped by water proximity
-anova.PM2.5.prox.22 <- aov(value ~ water.proximity, data = pm2.5df.2022)
-summary(anova.PM2.5.prox.22)
-
-tukey.prox.22 <- TukeyHSD(anova.PM2.5.prox.22)
-print(tukey.prox.22)
-
-cld.prox.22 <- multcompLetters4(anova.PM2.5.prox.22, tukey.prox.22)
-print(cld.prox.22)
-
-tk.prox.22 <- group_by(pm2.5df.2022, water.proximity) %>% 
-  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
-  arrange(desc(mean))
-cld.prox.22 <- as.data.frame.list(cld.prox.22$water.proximity)
-
-# plots 
-ggplot(pm2.5df.2022, aes(x = water.proximity, y = value, fill = water.proximity)) +
-  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
-  geom_boxplot(alpha = 0.5) +
+  geom_boxplot(alpha = 0.7) +
   labs(x = "Proximity to Waterfront") +
   ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
-  ggtitle("Annual PM2.5 Mass May-August 2022") +
+  ggtitle("Annual PM2.5 Mass May-August 2022 and 2023") +
   scale_fill_manual(values = proximity.color.palette) +
   scale_color_manual(values = proximity.color.palette) +
   theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
@@ -1300,66 +1387,33 @@ ggplot(pm2.5df.2022, aes(x = water.proximity, y = value, fill = water.proximity)
         panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
         panel.grid.major.x = element_blank()) +
   ylim(0,20) +
-  geom_text(data = tk.prox.22, aes(x = water.proximity, y = quant, label = cld.prox.22$Letters), size = 5, vjust=-1, hjust = -0.2)
+  geom_text(data = tk.prox, aes(x = water.proximity, y = quant, label = cld.prox$Letters), size = 5, vjust=-1, hjust = -0.2)
 
-# 2023 DATA ONLY ------------------------------------------------------------------------
-# stats test to go with boxplot data
-anova.PM2.5.sensor.23 <- aov(value ~ Name, data = pm2.5df.2023)
-summary(anova.PM2.5.sensor.23)
+weekly_data_winter <- weekly_data_cleaned %>% drop_na(pm2.5_CONUS) %>%
+  mutate(water.proximity = recode(water.proximity, 
+                                  ">1km" = ">0.5km", 
+                                  "<1km" = ">0.5km"))  %>%  
+  filter(grepl("-12-|-01-|-02-", week))
+anova.PM2.5.prox <- aov(pm2.5_CONUS ~ water.proximity, data = weekly_data_winter)
+summary(anova.PM2.5.prox)
 
-tukey.sensor.23 <- TukeyHSD(anova.PM2.5.sensor.23)
-print(tukey.sensor.23)
+tukey.prox <- TukeyHSD(anova.PM2.5.prox)
+print(tukey.prox)
 
-cld.sensor.23 <- multcompLetters4(anova.PM2.5.sensor.23, tukey.sensor.23)
-print(cld.sensor.23)
+cld.prox <- multcompLetters4(anova.PM2.5.prox, tukey.prox)
+print(cld.prox)
 
-tk.sensor.23 <- group_by(pm2.5df.2023, Name) %>% 
-  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
+tk.prox <- group_by(weekly_data_winter, water.proximity) %>% 
+  summarise(mean = mean(pm2.5_CONUS), quant = quantile(pm2.5_CONUS, probs = 0.75)) %>% 
   arrange(desc(mean))
-cld.sensor.23 <- as.data.frame.list(cld.sensor.23$Name)
+cld.prox <- as.data.frame.list(cld.prox$water.proximity)
 
-# plots 
-ggplot(pm2.5df.2023, aes(x = Name, y = value, fill = Name)) +
+winter <- ggplot(weekly_data_winter, aes(x = water.proximity, y = pm2.5_CONUS, fill = water.proximity)) +
   #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
-  geom_boxplot(alpha = 0.5) +
-  labs(x = "Sensor ID") +
-  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
-  ggtitle("PM2.5 Mass May-August 2023") +
-  scale_fill_manual(values = location.color.palette) +
-  scale_color_manual(values = location.color.palette) +
-  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
-        axis.text.y = element_text(size=15, face="bold", color = "black"),
-        axis.title.x = element_text(size=15, face="bold", color = "black"),  
-        axis.title.y = element_text(size=15, face="bold", color = "black"),
-        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
-        panel.background = element_rect(fill = "white"),
-        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
-        panel.grid.major.x = element_blank()) +
-  ylim(0,20) +
-  geom_text(data = tk.sensor.23, aes(x = Name, y = quant, label = cld.sensor.23$Letters), size = 3, vjust=-1, hjust = -0.2)
-
-# grouped by water proximity
-anova.PM2.5.prox.23 <- aov(value ~ water.proximity, data = pm2.5df.2023)
-summary(anova.PM2.5.prox.23)
-
-tukey.prox.23 <- TukeyHSD(anova.PM2.5.prox.23)
-print(tukey.prox.23)
-
-cld.prox.23 <- multcompLetters4(anova.PM2.5.prox.23, tukey.prox.23)
-print(cld.prox.23)
-
-tk.prox.23 <- group_by(pm2.5df.2023, water.proximity) %>% 
-  summarise(mean = mean(value), quant = quantile(value, probs = 0.75)) %>% 
-  arrange(desc(mean))
-cld.prox.23 <- as.data.frame.list(cld.prox.23$water.proximity)
-
-# plots 
-ggplot(pm2.5df.2023, aes(x = water.proximity, y = value, fill = water.proximity)) +
-  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
-  geom_boxplot(alpha = 0.5) +
+  geom_boxplot(alpha = 0.7) +
   labs(x = "Proximity to Waterfront") +
   ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
-  ggtitle("Annual PM2.5 Mass May-August 2023") +
+  ggtitle("Annual PM2.5 Mass May-August 2022 and 2023") +
   scale_fill_manual(values = proximity.color.palette) +
   scale_color_manual(values = proximity.color.palette) +
   theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
@@ -1371,112 +1425,204 @@ ggplot(pm2.5df.2023, aes(x = water.proximity, y = value, fill = water.proximity)
         panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
         panel.grid.major.x = element_blank()) +
   ylim(0,20) +
-  geom_text(data = tk.prox.23, aes(x = water.proximity, y = quant, label = cld.prox.23$Letters), size = 5, vjust=-1, hjust = -0.2)
+  geom_text(data = tk.prox, aes(x = water.proximity, y = quant, label = cld.prox$Letters), size = 5, vjust=-1, hjust = -0.2)
 
-# comparing PM to water data via simple linear regressions  ----------------------------------------------
-S_cyano_pm <- combined_water_air_S_wide %>% 
-  filter(#date < "2023-01-01" & 
-    date <= "2023-06-01" | 
-      date >= "2023-06-14") %>% 
-  filter(avg_cyano_cell_count != 0)
+weekly_data_spring <- weekly_data_cleaned %>% drop_na(pm2.5_CONUS) %>%
+  mutate(water.proximity = recode(water.proximity, 
+                                  ">1km" = ">0.5km", 
+                                  "<1km" = ">0.5km"))  %>%  
+  filter(grepl("-03-|-04-|-05-", week))
+anova.PM2.5.prox <- aov(pm2.5_CONUS ~ water.proximity, data = weekly_data_spring)
+summary(anova.PM2.5.prox)
 
-M_cyano_pm <- combined_water_air_M_wide %>% 
-  filter(#date < "2023-01-01" & 
-    date <= "2023-06-01" | 
-      date >= "2023-06-14") %>% 
-  filter(avg_cyano_cell_count != 0)
+tukey.prox <- TukeyHSD(anova.PM2.5.prox)
+print(tukey.prox)
 
-L_cyano_pm <- combined_water_air_L_wide %>% 
-  filter(#date < "2023-01-01" & 
-    date <= "2023-06-01" | 
-      date >= "2023-06-14") %>% 
-  filter(avg_cyano_cell_count != 0)
+cld.prox <- multcompLetters4(anova.PM2.5.prox, tukey.prox)
+print(cld.prox)
 
-# linear regression plots compiled sensors 
-library(patchwork)
-S.plot <- ggplot(S_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`)) +
+tk.prox <- group_by(weekly_data_spring, water.proximity) %>% 
+  summarise(mean = mean(pm2.5_CONUS), quant = quantile(pm2.5_CONUS, probs = 0.75)) %>% 
+  arrange(desc(mean))
+cld.prox <- as.data.frame.list(cld.prox$water.proximity)
+
+
+spring <- ggplot(weekly_data_spring, aes(x = water.proximity, y = pm2.5_CONUS, fill = water.proximity)) +
+  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
+  geom_boxplot(alpha = 0.7) +
+  labs(x = "Proximity to Waterfront") +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  ggtitle("Annual PM2.5 Mass May-August 2022 and 2023") +
+  scale_fill_manual(values = proximity.color.palette) +
+  scale_color_manual(values = proximity.color.palette) +
+  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
+        axis.text.y = element_text(size=15, face="bold", color = "black"),
+        axis.title.x = element_text(size=15, face="bold", color = "black"),  
+        axis.title.y = element_text(size=15, face="bold", color = "black"),
+        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
+        panel.grid.major.x = element_blank()) +
+  ylim(0,20) +
+  geom_text(data = tk.prox, aes(x = water.proximity, y = quant, label = cld.prox$Letters), size = 5, vjust=-1, hjust = -0.2)
+
+weekly_data_summer <- weekly_data_cleaned %>% drop_na(pm2.5_CONUS) %>%
+  mutate(water.proximity = recode(water.proximity, 
+                                  ">1km" = ">0.5km", 
+                                  "<1km" = ">0.5km"))  %>%  
+  filter(grepl("-06-|-07-|-08-", week))
+
+anova.PM2.5.prox <- aov(pm2.5_CONUS ~ water.proximity, data = weekly_data_summer)
+summary(anova.PM2.5.prox)
+
+tukey.prox <- TukeyHSD(anova.PM2.5.prox)
+print(tukey.prox)
+
+cld.prox <- multcompLetters4(anova.PM2.5.prox, tukey.prox)
+print(cld.prox)
+
+tk.prox <- group_by(weekly_data_summer, water.proximity) %>% 
+  summarise(mean = mean(pm2.5_CONUS), quant = quantile(pm2.5_CONUS, probs = 0.75)) %>% 
+  arrange(desc(mean))
+cld.prox <- as.data.frame.list(cld.prox$water.proximity)
+
+summer <- ggplot(weekly_data_summer, aes(x = water.proximity, y = pm2.5_CONUS, fill = water.proximity)) +
+  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) + 
+  geom_boxplot(alpha = 0.7) +
+  labs(x = "Proximity to Waterfront") +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  ggtitle("Annual PM2.5 Mass May-August 2022 and 2023") +
+  scale_fill_manual(values = proximity.color.palette) +
+  scale_color_manual(values = proximity.color.palette) +
+  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
+        axis.text.y = element_text(size=15, face="bold", color = "black"),
+        axis.title.x = element_text(size=15, face="bold", color = "black"),  
+        axis.title.y = element_text(size=15, face="bold", color = "black"),
+        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
+        panel.grid.major.x = element_blank()) +
+  ylim(0,20) +
+  geom_text(data = tk.prox, aes(x = water.proximity, y = quant, label = cld.prox$Letters), size = 5, vjust=-1, hjust = -0.2)
+
+winter + spring + summer + fall
+
+# WHO THRESHOLD PLOT 
+weekly_data_bloom_threshold <- weekly_data_cleaned %>% 
+                    mutate(WHO.bloom = case_when(
+                      avg_cyano_cell_count_S >= 100000 |  
+                      avg_cyano_cell_count_M >= 100000 | 
+                      avg_cyano_cell_count_L >= 100000 ~ "Bloom",
+                      avg_cyano_cell_count_S < 100000 |
+                      avg_cyano_cell_count_M < 100000 | 
+                      avg_cyano_cell_count_L < 100000 |
+                      is.na(avg_cyano_cell_count_S) |
+                      is.na(avg_cyano_cell_count_M) |
+                      is.na(avg_cyano_cell_count_L) ~ "Non-Bloom")) %>%
+  drop_na(WHO.bloom, pm2.5_CONUS) 
+
+weekly_data_bloom_threshold$Name <- factor(weekly_data_bloom_threshold$Name , levels = c("1562", "5822", "1334", "1680", "1358", "5838", "1348", "1378", "1362", "9875", "1318", "1344", "1806"))
+
+library(ggpubr)
+ggplot(weekly_data_bloom_threshold, aes(x = WHO.bloom, y = pm2.5_CONUS, fill = Name)) +
+  #geom_point(position = position_jitter(width = 0.3), aes(color = Name), alpha = 0.25) +
+  geom_boxplot(alpha = 0.9) +
+  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
+  scale_fill_manual(values = sensor.name.palette) +
+  scale_color_manual(values = sensor.name.palette) +
+  theme(axis.text.x = element_text(size=15, face="bold", color = "black"),
+        axis.text.y = element_text(size=15, face="bold", color = "black"),
+        axis.title.x = element_text(size=15, face="bold", color = "black"),  
+        axis.title.y = element_text(size=15, face="bold", color = "black"),
+        plot.title = element_text(size=20, face="bold", color = "black", hjust = 0.5), 
+        panel.background = element_rect(fill = "white"),
+        panel.grid.major.y = element_line(color = 'gray', linetype = "dashed"), 
+        panel.grid.major.x = element_blank()) + 
+  facet_wrap(~Name) + 
+  ylim(0,15) 
+
+# now need to run stats for those 
+WHO.stats <- weekly_data_bloom_threshold %>% 
+  group_by(Name, WHO.bloom) %>%
+  summarise(
+    count = n(),
+    median = median(pm2.5_CONUS, na.rm = TRUE),
+    IQR = IQR(pm2.5_CONUS, na.rm = TRUE))
+
+weekly_data_bloom_threshold_noinland <- weekly_data_bloom_threshold %>% filter(Name == "5822")
+  #filter(Name != "1562", Name != "1680", Name != "1358")
+  
+# Group by 'Name' and run Wilcoxon test for each group
+wilcox_results <- weekly_data_bloom_threshold_noinland %>%
+  group_by(Name) %>%
+  do(test = wilcox.test(pm2.5_CONUS ~ WHO.bloom, data = weekly_data_bloom_threshold_noinland))  # Run Wilcoxon test
+wilcox_results %>%
+  mutate(p_value = test$p.value, 
+         statistic = test$statistic)
+
+library(dplyr)
+
+# Define the function to run the Wilcoxon test for a given Name
+run_wilcox_test <- function(data, name) {
+  filtered_data <- data %>% filter(Name == name)
+  
+  if (n_distinct(filtered_data$WHO.bloom) == 2) {
+    test_result <- wilcox.test(pm2.5_CONUS ~ WHO.bloom, data = filtered_data, exact = FALSE)
+    return(data.frame(Name = name, p_value = test_result$p.value, statistic = test_result$statistic))
+  } else {
+    return(data.frame(Name = name, p_value = NA, statistic = NA))
+  }
+}
+
+# Get unique names from the data
+unique_names <- unique(weekly_data_bloom_threshold$Name)
+
+# Run the Wilcoxon test for each Name and store results in a dataframe
+results <- do.call(rbind, lapply(unique_names, function(name) run_wilcox_test(weekly_data_bloom_threshold, name)))
+
+# Print the results dataframe
+print(results)
+
+
+# WIND DIRECTION PLOT
+ggplot(weekly_data_cleaned) + 
+  geom_boxplot(aes(x = `relative_winddir`, y = `pm2.5_CONUS`, color = Name)) + 
+  facet_wrap(~Name) + 
+  scale_color_manual(values = sensor.name.palette) +
+  ylim(0,15) + 
+  theme_bw()
+
+
+# comparing PM to water data via simple linear regressions  ---------------------------------
+library(ggpmisc)
+corr.S <- ggplot(weekly_data, aes(x = avg_cyano_cell_count_S, y = surface_area_bloom_S))+
   geom_point() + 
+  theme_bw()+
   geom_smooth(method = "glm", se = FALSE) +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  labs(title = "<0.5 km resolution") +
-  xlab(expression(bold(cyanobacterial~cell~count~(cells~ml^bold("-1"))))) +
-  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
-  theme_minimal() 
-fit <- lm(pm2.5 ~ avg_cyano_cell_count, data = S_cyano_pm)
-eq <- as.character(paste("R^2 =", round(summary(fit)$r.squared, 2)))
-# Add R^2 value as a label to the plot
-S.plot.1 <- S.plot + annotate("text", x = Inf, y = -Inf, hjust = 1.5, vjust = -15, label = eq, size = 6)
-S.plot.1
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+               label.x = "right", label.y = "top",
+               formula = y ~ x, parse = TRUE)
 
-M.plot <- ggplot(M_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`)) +
-  geom_point()+  # Scatter plot
-  geom_smooth(method = "glm", se = FALSE) +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  labs(title = "1 km resolution") +
-  xlab(expression(bold(cyanobacterial~cell~count~(cells~ml^bold("-1"))))) +
-  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
-  theme_minimal() 
-fit <- lm(pm2.5 ~ avg_cyano_cell_count, data = M_cyano_pm)
-eq <- as.character(paste("R^2 =", round(summary(fit)$r.squared, 2)))
-# Add R^2 value as a label to the plot
-M.plot.1 <- M.plot + annotate("text", x = Inf, y = -Inf, hjust = 1.5, vjust = -15, label = eq, size = 6)
-M.plot.1
-
-L.plot <- ggplot(L_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`)) +
+corr.M <-ggplot(weekly_data, aes(x = avg_cyano_cell_count_M, y = surface_area_bloom_M))+
   geom_point() + 
-  xlim(6500,75000) +  # Scatter plot
-  geom_smooth(method = "glm", se = FALSE) +
-  theme(plot.title = element_text(hjust = 0.5)) +
-  labs(title = ">1 km resolution") +
-  xlab(expression(bold(cyanobacterial~cell~count~(cells~ml^bold("-1"))))) +
-  ylab(expression(bold(PM[2.5]~mass~concentration~(µg~m^bold("-3"))))) +
-  theme_minimal() 
-fit <- lm(pm2.5 ~ avg_cyano_cell_count, data = L_cyano_pm)
-eq <- as.character(paste("R^2 =", round(summary(fit)$r.squared, 2)))
-# Add R^2 value as a label to the plot
-L.plot.1 <- L.plot + annotate("text", x = Inf, y = -Inf, hjust = 1.5, vjust = -15, label = eq, size = 6)
-L.plot.1
+  geom_smooth(method = "glm", se = FALSE) + 
+  theme_bw()+
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+               label.x = "right", label.y = "top",
+               formula = y ~ x, parse = TRUE)
 
-S.plot.1 + M.plot.1 + L.plot.1
+corr.L <- ggplot(weekly_data, aes(x = avg_cyano_cell_count_L, y = surface_area_bloom_L))+
+  geom_point() + 
+  theme_bw()+
+  geom_smooth(method = "glm", se = FALSE)+
+  stat_poly_eq(aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")),
+               label.x = "right", label.y = "top",
+               formula = y ~ x, parse = TRUE)
 
-# stratifying data by individual sensors
-ggplot(S_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`, color = Name)) +
-  geom_point() +   # Axis labels
-  theme_minimal() + 
-  geom_smooth(method = "glm", se = FALSE) 
-
-ggplot(M_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`, color = Name)) +
-  geom_point() +   # Axis labels
-  theme_minimal() + 
-  geom_smooth(method = "glm", se = FALSE) 
-
-ggplot(L_cyano_pm, aes(x = `avg_cyano_cell_count`, y = `pm2.5`, color = Name)) +
-  geom_point() +   # Axis labels
-  theme_minimal()+ 
-  xlim(6500,75000) + 
-  geom_smooth(method = "glm", se = FALSE) 
-
-# cleaning data for daily time series stratified by sensor
-
-# time series
-sensor.AB <- L_cyano_pm %>% filter(Name == "1318" & date >= "2023-01-01")
-sensor.AB$date <- as.Date(sensor.AB$date)
-# Plot with two y-axes
-ggplot(sensor.AB, aes(x = date)) +
-  geom_line(aes(y = pm2.5, color = "pm2.5")) +
-  geom_line(aes(y = avg_cyano_cell_count / 1000, color = "avg_cyano_cell_count")) +
-  scale_y_continuous(
-    name = "pm2.5",
-    limits = c(0, 60),
-    sec.axis = sec_axis(~ .*1000, name = "avg_cyano_cell_count")
-  ) +
-  labs(x = "Date") +
-  scale_color_manual(values = c("pm2.5" = "blue", "avg_cyano_cell_count" = "red")) +
-  theme_minimal()
+corr.S + corr.M + corr.L
 
 
-ggplot(sensor.AB, aes(x=date, y=pm2.5)) + 
-  geom_line()
+
 
 
 

@@ -65,7 +65,7 @@ for (i in seq_along(file_names)) {
   data$time_stamp <- format(data$time_stamp, "%Y-%m-%d")
   
   # Remove duplicate rows
-  data <- data[!duplicated(data), ]
+ # data <- data[!duplicated(data), ]
   
   # Extract the first 6 characters of the file name
   truncated_file_name <- paste0(substr(basename(file_names[i]), 3, 8), "_pm")
@@ -126,6 +126,7 @@ for (i in seq_along(all_purple_air_data)) {
   if ("pm2.5_a" %in% colnames(data) && "pm2.5_b" %in% colnames(data)) {
     data$sensor_dif <- data$pm2.5_a - data$pm2.5_b
     data$channel_comp <- ((data$pm2.5_a - data$pm2.5_b) * 2) / (data$pm2.5_a + data$pm2.5_b)
+    data$pm2.5_avg_raw <- (data$pm2.5_a + data$pm2.5_b) / 2
     
     # Remove rows where sensor_dif > 5 or channel_comparison > .61
     data <- data[data$sensor_dif <= 5 & data$sensor_dif >= -5 & data$channel_comp <= 0.61 & data$channel_comp >= -0.61, ]
@@ -169,6 +170,7 @@ for (i in seq_along(all_purple_air_data)) {
   corrected_purple_air_data.1[df_names[i]] <- list(data = data.1)
 }
 
+
 # Merging different correction factors into single dfs 
 sensor.5822 <- left_join(corrected_purple_air_data[["5822"]], corrected_purple_air_data.1[["5822"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
 sensor.5838 <- left_join(corrected_purple_air_data[["5838"]], corrected_purple_air_data.1[["5838"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
@@ -197,8 +199,11 @@ sensor.1318.1 <- full_join(new_RH_values_1318, sensor.1318, by = "time_stamp") %
   dplyr::select(-humidity, -temperature) %>%
   rename(humidity = humidity_1318, temperature = temperature_1318)
 sensor.1318.1 <- sensor.1318.1 %>%
-  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
-         SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75) %>% 
+  mutate(SE.pm2.5 = case_when(
+    humidity <= 50 ~ 2.738732 + (0.425834*pm2.5_avg_SE) - (0.008944*humidity) + (0.079210*temperature),
+    humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
+ # mutate(SE.pm2.5 = 4.3295358 + (0.4182906*pm2.5_avg_SE) - (0.0445768* humidity) + (0.0752867*temperature))
 sensor.1318 <- sensor.1318.1
 
 # same issue for 9875
@@ -212,8 +217,11 @@ sensor.9875.1 <- full_join(new_RH_values_9875, sensor.9875, by = "time_stamp") %
   dplyr::select(-humidity, -temperature) %>%
   rename(humidity = humidity_9875, temperature = temperature_9875)
 sensor.9875.1 <- sensor.9875.1 %>%
-  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
-         SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75) %>% 
+  mutate(SE.pm2.5 = case_when(
+  humidity <= 50 ~ 2.738732 + (0.425834*pm2.5_avg_SE) - (0.008944*humidity) + (0.079210*temperature),
+  humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
+ # mutate(SE.pm2.5 = 4.3295358 + (0.4182906*pm2.5_avg_SE) - (0.0445768* humidity) + (0.0752867*temperature))
 sensor.9875 <- sensor.9875.1
 
 # 1348 has missing humidity and temp values, using values from nearest sensor (5838) operating at the time to fill in these NAs 
@@ -222,8 +230,11 @@ merged_data <- merged_data %>% mutate(humidity_1348 = coalesce(humidity_1348, hu
 new.RH.values.1348 <- merged_data %>% dplyr::select(time_stamp, humidity_1348, temperature_1348)
 sensor.1348.1 <- full_join(new.RH.values.1348, sensor.1348, by = "time_stamp") %>% dplyr::select(-humidity, -temperature) %>% rename(humidity = humidity_1348, temperature = temperature_1348)
 sensor.1348.1 <- sensor.1348.1 %>% 
-  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
-         SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75) %>% 
+  mutate(SE.pm2.5 = case_when(
+    humidity <= 50 ~ 2.738732 + (0.425834*pm2.5_avg_SE) - (0.008944*humidity) + (0.079210*temperature),
+    humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
+ # mutate(SE.pm2.5 = 4.3295358 + (0.4182906*pm2.5_avg_SE) - (0.0445768* humidity) + (0.0752867*temperature))
 sensor.1348 <- sensor.1348.1
 
 # 1680 -- using values from nearest sensor (5838) operating at the time to fill in these NAs 
@@ -232,8 +243,11 @@ merged_data <- merged_data %>% mutate(humidity_1680 = coalesce(humidity_1680, hu
 new.RH.values.1680 <- merged_data %>% dplyr::select(time_stamp, humidity_1680 , temperature_1680)
 sensor.1680.1 <- full_join(new.RH.values.1680, sensor.1680, by = "time_stamp") %>% dplyr::select(-humidity, -temperature) %>% rename(humidity = humidity_1680, temperature = temperature_1680)
 sensor.1680.1 <- sensor.1680.1 %>%  
-  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
-  SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75) %>% 
+  mutate(SE.pm2.5 = case_when(
+    humidity <= 50 ~ 2.738732 + (0.425834*pm2.5_avg_SE) - (0.008944*humidity) + (0.079210*temperature),
+    humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
+ # mutate(SE.pm2.5 = 4.3295358 + (0.4182906*pm2.5_avg_SE) - (0.0445768* humidity) + (0.0752867*temperature))
 # renaming to original file name 
 sensor.1680 <- sensor.1680.1
 
@@ -243,15 +257,16 @@ merged_data <- merged_data %>% mutate(humidity_5822 = coalesce(humidity_5822, hu
 new.RH.values.5822 <- merged_data %>% dplyr::select(time_stamp, humidity_5822, temperature_5822)
 sensor.5822.1 <- full_join(new.RH.values.5822, sensor.5822, by = "time_stamp") %>% dplyr::select(-humidity, -temperature) %>% rename(humidity = humidity_5822, temperature = temperature_5822)
 sensor.5822.1 <- sensor.5822.1 %>% 
-  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75,
-         SE.pm2.5 = 4.3295358 + (0.4182906 * pm2.5_avg_SE) - (0.0445768 * humidity) + (0.0752867 * temperature))
+  mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75) %>% 
+  mutate(SE.pm2.5 = case_when(
+  humidity <= 50 ~ 2.738732 + (0.425834*pm2.5_avg_SE) - (0.008944*humidity) + (0.079210*temperature),
+  humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
+ # mutate(SE.pm2.5 = 4.3295358 + (0.4182906*pm2.5_avg_SE) - (0.0445768* humidity) + (0.0752867*temperature))
 sensor.5822 <- sensor.5822.1
 
 # Compiling purpleair data back into a list 
 all_objects <- ls()
 sensor_objects <- grep("^sensor\\.\\w{4}$", all_objects, value = TRUE)
-pa.sensor.list <- lapply(sensor_objects, get)
-names(pa.sensor.list) <- sensor_objects
 
 # CyAN Cyanobacterial Index (digital number DN) data from SEADAS Pixel Extraction ---------------------------------------------- 
 library(tidyverse);library(dplyr)
@@ -269,31 +284,27 @@ library(tidyverse);library(dplyr)
 #files <- list.files(folder_path, pattern = "\\.txt$", full.names = TRUE)
 
 # Loop through each file
-#for (file in files) {
-  
-  tryCatch({
+#for (file in files) {tryCatch({
     # Read the file, skipping lines until line 7
-    df <- read_delim(file, delim = "\t", col_names = TRUE, skip = 0)
+    #df <- read_delim(file, delim = "\t", col_names = TRUE, skip = 0)
     
     # Check if 'Name' column exists in the dataframe
-    if ('Name' %in% colnames(df)) {
+   # if ('Name' %in% colnames(df)) {
       # Select and store the desired columns
-      selected_columns <- df %>% dplyr::select(Name, band_1)
+     # selected_columns <- df %>% dplyr::select(Name, band_1)
       
       # Extract the desired part from the original filename to use as the new filename
-      new_filename <- gsub("_Derived from .*", "", basename(file))
+     # new_filename <- gsub("_Derived from .*", "", basename(file))
       
       # Use the filename (without extension) as the list element name
-      result_list[[new_filename]] <- selected_columns
-    } else {
-      warning(paste("Skipping file", basename(file), "as it does not contain 'Name' column."))
-    }
-  }, error = function(e) {
-    warning(paste("Error reading", basename(file), ":", e$message))
-  })
+     # result_list[[new_filename]] <- selected_columns
+   # } else {
+   #   warning(paste("Skipping file", basename(file), "as it does not contain 'Name' column."))
+  #  }
+ # }, error = function(e) {
+  #  warning(paste("Error reading", basename(file), ":", e$message))
+ # })
   
-}
-
 # trying to read in only the weekly composites instead of the daily data 
 library(dplyr)
 library(readr)
@@ -639,7 +650,7 @@ site_descriptors <- function(df) {
   
   df3 <- df2 %>% pivot_wider(names_from = pixel_type, values_from = data_completeness) %>% 
     mutate(percent_water = ifelse(invalid+valid == 0, 0, signif((invalid+valid)/(invalid+valid+land), digits = 3)),
-           percent_complete = ifelse(valid == 0, 0, signif(valid/(invalid+valid+land), digits = 3)),
+           percent_complete = ifelse(valid+land == 0, 0, signif((valid+land)/(invalid+valid+land), digits = 3)),
            percent_water_complete = ifelse(valid == 0, 0, signif(valid/(invalid+valid), digits = 3)),
            percent_land = ifelse(land == 0, 0, signif(land/(invalid+valid+land), digits = 3))) %>%
     mutate(Name = as.character(Name)) %>% 
@@ -672,6 +683,10 @@ avg_data_completeness_L <- data_completeness_L %>%
   summarise(across(c("percent_water", "percent_complete", "percent_water_complete", "percent_land"), c(mean,sd), na.rm = T)) %>%
   rename_with(~ gsub("_1$", "_mean", .x), ends_with("_1")) %>%
   rename_with(~ gsub("_2$", "_sd", .x), ends_with("_2"))
+
+write.csv(avg_data_completeness_S, 'C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\avg_data_completeness_S.csv')
+write.csv(avg_data_completeness_M, 'C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\avg_data_completeness_M.csv')
+write.csv(avg_data_completeness_L, 'C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\avg_data_completeness_L.csv')
 
 # Combining Air Quality data with Water Quality data -----------------------------------------------
 # List of dataframes to combine
