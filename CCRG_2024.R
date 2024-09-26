@@ -246,7 +246,7 @@ sensor.1680.1 <- sensor.1680.1 %>%
   mutate(CONUS_pm2.5 = 0.524 * pm2.5_avg - 0.0862 * humidity + 5.75) %>% 
   mutate(SE.pm2.5 = case_when(
     humidity <= 50 ~ 2.738732 + (0.425834*pm2.5_avg_SE) - (0.008944*humidity) + (0.079210*temperature),
-    humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
+     humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
  # mutate(SE.pm2.5 = 4.3295358 + (0.4182906*pm2.5_avg_SE) - (0.0445768* humidity) + (0.0752867*temperature))
 # renaming to original file name 
 sensor.1680 <- sensor.1680.1
@@ -261,7 +261,7 @@ sensor.5822.1 <- sensor.5822.1 %>%
   mutate(SE.pm2.5 = case_when(
   humidity <= 50 ~ 2.738732 + (0.425834*pm2.5_avg_SE) - (0.008944*humidity) + (0.079210*temperature),
   humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
- # mutate(SE.pm2.5 = 4.3295358 + (0.4182906*pm2.5_avg_SE) - (0.0445768* humidity) + (0.0752867*temperature))
+  #mutate(SE.pm2.5 = 4.3295358 + (0.4182906*pm2.5_avg_SE) - (0.0445768* humidity) + (0.0752867*temperature))
 sensor.5822 <- sensor.5822.1
 
 # Compiling purpleair data back into a list 
