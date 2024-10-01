@@ -2,15 +2,8 @@ setwd("C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repo
 rm(list = ls())
 library(httr);library(jsonlite);library(dplyr)
 
-# write for loop to read in TIFF files and then extract information I need
-## I used this to find the X and Y pixel bounds in UTM so that I could write the code to automatically scrape all of pixel data I needed using python
-#library(raster)
-#str_name <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\SeaDAS files\\CyanoIndices\\L2022157.L3m_DAY_CYAN_CI_cyano_CYAN_CONUS_300m_8_3.tif"
-#imported_raster <- raster(str_name)
-#imported_raster # see properties of the file 
-
 # PurpleAir Data Cleaning --------------------------------------------------------------------------
-# Loop and read in temperature files and clean 
+# Loop and read in TEMPERATURE files from purpleair -- collected later and separately from initial API call in separate script due to requirements for SE-specific correction factor 
 folder_path_temp <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\purpleairdata\\tempdata"
 file_names_temp <- list.files(path = folder_path_temp, pattern = "\\.csv$", full.names = TRUE)
 data_frames_temp <- list()
@@ -35,7 +28,7 @@ for (i in seq_along(file_names_temp)) {
   data_frames_temp[[i]] <- list(truncated_file_name = truncated_file_name, data = data)
 }
 
-# Combining sensor values spread across 2 excel files per limitations in API call limits
+# Combining sensor values spread across 2 excel files per API call data size limits
 combined_data_frames_temp <- list()
 for (i in seq_along(data_frames_temp)) {
   # Extract the first four characters of the truncated_file_name
@@ -51,7 +44,12 @@ for (i in seq_along(data_frames_temp)) {
   }
 }
 
-# Loop and read in PM2.5 files and clean 
+# convert temperature to celsius -- applied on 9/30/2024 per conversation with Jen and Martine on SE-specific correction factor unit requirements
+for (i in seq_along(combined_data_frames_temp)) {
+  combined_data_frames_temp[[i]]$temperature <- (combined_data_frames_temp[[i]]$temperature - 32) * 5/9
+}
+
+# Loop and read in PM2.5 files (original scrape -- and clean) 
 folder_path <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\purpleairdata\\pmdata"
 file_names <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
 data_frames <- list()
@@ -75,6 +73,7 @@ for (i in seq_along(file_names)) {
 }
 
 # Combining sensor values spread across 2 excel files per limitations in API call limits
+# RH is incorrectly labeled as temperature in these data frames and naming convention is altered later to save effort of changing each input file
 combined_data_frames <- list()
 for (i in seq_along(data_frames)) {
   # Extract the first four characters of the truncated_file_name
@@ -90,7 +89,7 @@ for (i in seq_along(data_frames)) {
   }
 }
 
-# Merging the temperature data with the pm data
+# Merging the temperature data with the pm + RH data
 all_purple_air_data <- list()
 merge_by_key_and_time_stamp <- function(df1, df2) {
   merged_list <- list()
@@ -110,15 +109,15 @@ merge_by_key_and_time_stamp <- function(df1, df2) {
 all_purple_air_data <- merge_by_key_and_time_stamp(combined_data_frames, combined_data_frames_temp)
 all_purple_air_data <- lapply(all_purple_air_data, function(df) {
                               df %>% 
-                              rename(humidity = temperature.x, temperature = temperature.y)
+                              rename(humidity = temperature.x, temperature = temperature.y) #this is where previously incorrect naming conventions were corrected
 })
 df_names <- names(all_purple_air_data)
 
-# Apply correction factors for measurement errors and humidity
+# Apply correction factors for measurement errors humidity/temperature (hygroscopic growth)
 corrected_purple_air_data <- list()
 corrected_purple_air_data.1 <- list()
 
-# For loop to perform the humidity correction factors from the literature
+# For loop to perform the correction factors from the literature
 for (i in seq_along(all_purple_air_data)) {
   data <- all_purple_air_data[[i]]  # Extract the dataframe
   
@@ -151,11 +150,11 @@ for (i in seq_along(all_purple_air_data)) {
                    !(pm2.5_a <= 25 & pm2.5_b <= 25 & (sensor_dif >= 5 | channel_comp >= 0.2 | channel_comp <= -0.2)) &
                    !(pm2.5_a >= 25 & pm2.5_b >= 25 & (channel_comp >= 0.2 | channel_comp <= -0.2)))
   
-  # Calculate pm2.5_avg_SE and SE.pm2.5 
+  # Calculate pm2.5_avg_SE (raw data but with stricter cleaning procedure) and SE.pm2.5 (cf applied)
  data.1$pm2.5_avg_SE <- (data.1$pm2.5_a + data.1$pm2.5_b) / 2
- # Model 4 only approach 
+ # Multilinear Regression Model 4 approach 
  # data.1$SE.pm2.5 <-  4.3295358 + (0.4182906*data.1$pm2.5_avg_SE) - (0.0445768* data.1$humidity) + (0.0752867*data.1$temperature)
- # Clustered approach to account for high humidity
+ # Semi-Supervised Clustered approach to account for high humidity
  data.1 <- data.1 %>% mutate(SE.pm2.5 = case_when(
                                        humidity <= 50 ~ 2.738732 + (0.425834*pm2.5_avg_SE) - (0.008944*humidity) + (0.079210*temperature),
                                        humidity > 50 ~ 7.230374 + (0.412683*pm2.5_avg_SE) - (0.085278*humidity) + (0.070655*temperature)))
@@ -186,7 +185,7 @@ sensor.1680 <- left_join(corrected_purple_air_data[["1680"]], corrected_purple_a
 sensor.1806 <- left_join(corrected_purple_air_data[["1806"]], corrected_purple_air_data.1[["1806"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
 sensor.9875 <- left_join(corrected_purple_air_data[["9875"]], corrected_purple_air_data.1[["9875"]], by = c("time_stamp", "temperature", "humidity"), keep = F) %>% dplyr::select(time_stamp, humidity, temperature, pm2.5_avg, CONUS_pm2.5, pm2.5_avg_SE, SE.pm2.5)
 
-# Filling in missing humidity, temperature values and recalculating 
+# Filling in missing humidity, temperature values and recalculating for sensors where Bosch measurements went out
 # 1318 has missing humidity and temperature values -- as well as values humidity = 100 and temp = -223 for all after 10-22-2022, using RH values from nearest sensor (1344) operating at the time to fill in these NAs 
 library(lubridate)
 merged_data <- full_join(sensor.1318, sensor.1344, by = "time_stamp", suffix = c("_1318", "_1344"))
@@ -268,7 +267,35 @@ sensor.5822 <- sensor.5822.1
 all_objects <- ls()
 sensor_objects <- grep("^sensor\\.\\w{4}$", all_objects, value = TRUE)
 
+# List of dataframes to combine
+sensor_names <- c("sensor.1318", "sensor.1344", "sensor.1348", "sensor.1358", 
+                  "sensor.1362", "sensor.1378", "sensor.1680", "sensor.1806", 
+                  "sensor.5822", "sensor.5838", "sensor.9875", "sensor.1334", "sensor.1562")
+
+# Initialize an empty list to store combined dataframes
+purpleair_data <- list()
+
+# Loop through each dataframe, add a new column "Name" with the sensor name
+for (sensor_name in sensor_names) {
+  df <- get(sensor_name) # Get dataframe by name
+  df <- df %>%
+    mutate(Name = gsub("sensor\\.", "", sensor_name)) # Extract sensor number and add as new column
+  purpleair_data[[sensor_name]] <- df # Add modified dataframe to combined list
+}
+
+compiled_purpleair_data <- bind_rows(purpleair_data) %>% 
+  dplyr::select(Name, time_stamp, CONUS_pm2.5, SE.pm2.5, pm2.5_avg) %>% 
+  rename(date = time_stamp, pm2.5_CONUS = CONUS_pm2.5, pm2.5_SE = SE.pm2.5)  %>%
+  mutate(across(-c(date, Name), ~ifelse(. < 0, 0, .))) %>% mutate(date = as.Date(date))
+
 # CyAN Cyanobacterial Index (digital number DN) data from SEADAS Pixel Extraction ---------------------------------------------- 
+# write for loop to read in TIFF files and then extract information I need 
+## I used this to find the X and Y pixel bounds in UTM so that I could write the code to automatically scrape all of pixel data I needed using python
+# library(raster)
+# str_name <- "C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\SeaDAS files\\CyanoIndices\\L2022157.L3m_DAY_CYAN_CI_cyano_CYAN_CONUS_300m_8_3.tif"
+# imported_raster <- raster(str_name)
+# imported_raster # see properties of the file 
+
 library(tidyverse);library(dplyr)
 
 # read in all of the SeaDAS files 
@@ -689,27 +716,6 @@ write.csv(avg_data_completeness_M, 'C:\\Users\\heplaas\\OneDrive - North Carolin
 write.csv(avg_data_completeness_L, 'C:\\Users\\heplaas\\OneDrive - North Carolina State University\\Code Repositories\\R\\CCRG\\all_compiled_data\\avg_data_completeness_L.csv')
 
 # Combining Air Quality data with Water Quality data -----------------------------------------------
-# List of dataframes to combine
-sensor_names <- c("sensor.1318", "sensor.1344", "sensor.1348", "sensor.1358", 
-                  "sensor.1362", "sensor.1378", "sensor.1680", "sensor.1806", 
-                  "sensor.5822", "sensor.5838", "sensor.9875", "sensor.1334", "sensor.1562")
-
-# Initialize an empty list to store combined dataframes
-purpleair_data <- list()
-
-# Loop through each dataframe, add a new column "Name" with the sensor name
-for (sensor_name in sensor_names) {
-  df <- get(sensor_name) # Get dataframe by name
-  df <- df %>%
-    mutate(Name = gsub("sensor\\.", "", sensor_name)) # Extract sensor number and add as new column
-  purpleair_data[[sensor_name]] <- df # Add modified dataframe to combined list
-}
-
-compiled_purpleair_data <- bind_rows(purpleair_data) %>% 
-          dplyr::select(Name, time_stamp, CONUS_pm2.5, SE.pm2.5, pm2.5_avg) %>% 
-          rename(date = time_stamp, pm2.5_CONUS = CONUS_pm2.5, pm2.5_SE = SE.pm2.5)  %>%
-          mutate(across(-c(date, Name), ~ifelse(. < 0, 0, .))) %>% mutate(date = as.Date(date))
-
 # longer for visualizations
 compiled_purpleair_data_longer <- compiled_purpleair_data %>% 
                                   pivot_longer(cols = c(-Name,-date), names_to = "variable", values_to = "value")
