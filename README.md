@@ -1,5 +1,5 @@
 # CCRG_PurpleAir
-This repository holds all of the R code associated with Plaas et al., xxx {insert eventual DOI here}. 
+This repository holds all of the R code associated with Plaas et al., 2025 DOI:10.1039/D5EA00020C. 
 
 ## License
 
